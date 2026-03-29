@@ -4,4 +4,4 @@ pub mod value;
 pub mod storage;
 pub mod command;
 pub mod persistence;
-pub mod network;
+pub mod server;

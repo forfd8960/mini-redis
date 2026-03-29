@@ -18,7 +18,7 @@ pub enum RedisValue {
 
 pub enum StringValue {
     Int(i64),
-    Raw(Vec<u8>),
+    Raw(Entry),
 }
 
 pub struct ListValue {
