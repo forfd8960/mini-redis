@@ -1,5 +1,12 @@
 use ordered_float::OrderedFloat;
 
+pub mod string; // string commands like GET, SET, INCR, DECR, etc.
+pub mod list; // list commands like LPUSH, RPUSH, LPOP, RPOP, LRANGE, etc.
+pub mod hash; // hash commands like HSET, HGET, HMGET, HGETALL, etc.
+pub mod set; // set commands like SADD, SREM, SMEMBERS, etc.
+pub mod sorted_set; // sorted set commands like ZADD, ZRANGE, ZSCORE, etc.
+pub mod generic; // general commands like PING, ECHO, EXISTS, TTL, EXPIRE, SCAN, KEYS, DEL
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Basic(BasicCommand),
@@ -47,7 +54,7 @@ pub enum StringCommand {
     StrLen(String),                  // strlen key
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SetOptions {
     pub ttl: Option<SetTTL>,
     pub condition: Option<SetCondition>,
