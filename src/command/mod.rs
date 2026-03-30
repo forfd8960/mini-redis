@@ -1,15 +1,15 @@
 use ordered_float::OrderedFloat;
 
-pub mod string; // string commands like GET, SET, INCR, DECR, etc.
-pub mod list; // list commands like LPUSH, RPUSH, LPOP, RPOP, LRANGE, etc.
+pub mod generic; // general commands like PING, ECHO, EXISTS, TTL, EXPIRE, SCAN, KEYS, DEL, etc.
 pub mod hash; // hash commands like HSET, HGET, HMGET, HGETALL, etc.
+pub mod list; // list commands like LPUSH, RPUSH, LPOP, RPOP, LRANGE, etc.
 pub mod set; // set commands like SADD, SREM, SMEMBERS, etc.
 pub mod sorted_set; // sorted set commands like ZADD, ZRANGE, ZSCORE, etc.
-pub mod generic; // general commands like PING, ECHO, EXISTS, TTL, EXPIRE, SCAN, KEYS, DEL
+pub mod string; // string commands like GET, SET, INCR, DECR, etc. 
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    Basic(BasicCommand),
+    Generic(GenericCommand),
     String(StringCommand),
     List(ListCommand),
     Hash(HashCommand),
@@ -18,20 +18,16 @@ pub enum Command {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BasicCommand {
-    Ping,
+pub enum GenericCommand {
+    Ping(String), // ping [message]
     Echo(String),
     Exists(String),
     TTL(String),
     Expire(String, u64),
     // scan cursor [MATCH pattern] [COUNT count] [TYPE type]
-    Scan(
-        Option<String>,
-        Option<String>,
-        Option<usize>,
-        Option<String>,
-    ),
+    Scan(i64, Option<String>, Option<usize>, Option<String>),
     Keys(String), // keys pattern
+    Type(String), // type key
     Del(String),
 }
 
@@ -93,8 +89,15 @@ pub enum HashCommand {
     Hget(String, String),                // hget key field
     Hmget(String, Vec<String>),          // hmget key field1 field2 ...
     Hgetall(String),                     // hgetall key
-    Hincrby { key: String, field: String, increment: i64 }, // hincrby key field increment
-    Hdel { key: String, fields: Vec<String> },
+    Hincrby {
+        key: String,
+        field: String,
+        increment: i64,
+    }, // hincrby key field increment
+    Hdel {
+        key: String,
+        fields: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,4 +117,57 @@ pub enum SortedSetCommand {
     ZrangeWithScores(String, usize, usize),         // zrange key start stop withscores
     Zrank(String, String),                          // zrank key member
     Zscore(String, String),                         // zscore key member
+}
+
+pub fn is_generic_command(cmd_name: &str) -> bool {
+    matches!(
+        cmd_name.to_uppercase().as_str(),
+        "PING" | "ECHO" | "EXISTS" | "TTL" | "EXPIRE" | "SCAN" | "KEYS" | "DEL" | "TYPE"
+    )
+}
+
+pub fn is_string_command(cmd_name: &str) -> bool {
+    matches!(
+        cmd_name.to_uppercase().as_str(),
+        "GET"
+            | "SET"
+            | "INCR"
+            | "INCRBY"
+            | "DECR"
+            | "DECRBY"
+            | "MGET"
+            | "MSET"
+            | "GETRANGE"
+            | "SETRANGE"
+            | "APPEND"
+            | "STRLEN"
+    )
+}
+
+pub fn is_hash_command(cmd_name: &str) -> bool {
+    matches!(
+        cmd_name.to_uppercase().as_str(),
+        "HSET" | "HGET" | "HMGET" | "HGETALL" | "HINCRBY" | "HDEL"
+    )
+}
+
+pub fn is_list_command(cmd_name: &str) -> bool {
+    matches!(
+        cmd_name.to_uppercase().as_str(),
+        "LPUSH" | "RPUSH" | "LPOP" | "RPOP" | "LRANGE" | "LLEN" | "LREM"
+    )
+}
+
+pub fn is_set_command(cmd_name: &str) -> bool {
+    matches!(
+        cmd_name.to_uppercase().as_str(),
+        "SADD" | "SREM" | "SMEMBERS" | "SISMEMBER" | "SCARD"
+    )
+}
+
+pub fn is_sorted_set_command(cmd_name: &str) -> bool {
+    matches!(
+        cmd_name.to_uppercase().as_str(),
+        "ZADD" | "ZREM" | "ZRANGE" | "ZRANGEWITHSCORES" | "ZRANK" | "ZSCORE"
+    )
 }
