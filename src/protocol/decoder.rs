@@ -84,7 +84,7 @@ fn decode_generic_command(parts: &[String]) -> Result<Command, RedisError> {
             }
         }
         "ECHO" => Ok(Command::Generic(GenericCommand::Echo(args[0].clone()))),
-        "EXISTS" => Ok(Command::Generic(GenericCommand::Exists(args[0].clone()))),
+        "EXISTS" => Ok(Command::Generic(GenericCommand::Exists(args.to_vec()))),
         "EXPIRE" => {
             let key = args[0].clone();
             let ttl = args[1].parse::<u64>().map_err(|e| {
@@ -134,6 +134,14 @@ fn build_scan_command(args: &[String]) -> Result<Command, RedisError> {
 fn validate_generic_command_args(cmd_name: &str, args: &[String]) -> Result<(), RedisError> {
     match cmd_name {
         "PING" | "SCAN" => Ok(()),
+        "EXISTS" => {
+            if args.is_empty() {
+                return Err(RedisError::ProtocolError(format!(
+                    "EXISTS requires at least 1 argument"
+                )));
+            }
+            Ok(())
+        }
         "EXPIRE" => {
             if args.len() != 2 {
                 return Err(RedisError::ProtocolError(format!(
@@ -142,7 +150,7 @@ fn validate_generic_command_args(cmd_name: &str, args: &[String]) -> Result<(), 
             }
             Ok(())
         }
-        "ECHO" | "EXISTS" | "DEL" | "TTL" | "KEYS" | "TYPE" => {
+        "ECHO" | "DEL" | "TTL" | "KEYS" | "TYPE" => {
             if args.len() != 1 {
                 return Err(RedisError::ProtocolError(format!(
                     "{} requires exactly 1 argument",

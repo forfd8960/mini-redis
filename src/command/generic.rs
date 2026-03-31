@@ -7,7 +7,7 @@ use crate::{command::CommandHandler, errors::RedisError, protocol::encoder::enco
 pub trait GenericHandler {
     fn ping(&self, msg: Option<String>) -> Result<BytesFrame, RedisError>;
     fn echo(&self, message: &str) -> Result<BytesFrame, RedisError>;
-    fn exists(&self, key: &str) -> Result<BytesFrame, RedisError>;
+    fn exists(&self, key: Vec<&str>) -> Result<BytesFrame, RedisError>;
     fn ttl(&self, key: &str) -> Result<BytesFrame, RedisError>;
     fn expire(&mut self, key: &str, ttl: u64) -> Result<BytesFrame, RedisError>;
     fn scan(
@@ -34,11 +34,14 @@ impl GenericHandler for CommandHandler {
         Ok(encode_simple_string(message.into()))
     }
 
-    fn exists(&self, key: &str) -> Result<BytesFrame, RedisError> {
-        match self.mem_storage.exists(key) {
-            true => Ok(encode_integer(1)),
-            false => Ok(encode_integer(0)),
+    fn exists(&self, keys: Vec<&str>) -> Result<BytesFrame, RedisError> {
+        let mut count = 0;
+        for key in keys {
+            if self.mem_storage.exists(key) {
+                count += 1;
+            }
         }
+        Ok(encode_integer(count))
     }
 
     fn ttl(&self, key: &str) -> Result<BytesFrame, RedisError> {

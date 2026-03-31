@@ -30,7 +30,7 @@ pub enum Command {
 pub enum GenericCommand {
     Ping(Option<String>), // ping [message]
     Echo(String),
-    Exists(String),
+    Exists(Vec<String>), // exists key1 key2 ...
     TTL(String),
     Expire(String, u64),
     // scan cursor [MATCH pattern] [COUNT count] [TYPE type]
@@ -207,7 +207,7 @@ impl CommandHandler {
         match cmd {
             GenericCommand::Ping(msg) => self.ping(msg),
             GenericCommand::Echo(msg) => self.echo(msg.as_str()),
-            GenericCommand::Exists(key) => self.exists(&key),
+            GenericCommand::Exists(keys) => self.exists(keys.iter().map(|k| k.as_str()).collect()),
             GenericCommand::TTL(key) => self.ttl(&key),
             GenericCommand::Expire(key, seconds) => self.expire(&key, seconds),
             GenericCommand::Scan(cursor, pattern, count, type_filter) => {

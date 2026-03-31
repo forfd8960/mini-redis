@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create framed stream with our RESP codec
     let mut framed = Framed::new(stream, Resp2::default());
 
-    send_string_cmds(&mut framed).await?;
+    send_generic_cmds(&mut framed).await?;
 
     Ok(())
 }
@@ -64,6 +64,24 @@ async fn send_set_cmds(
             "SISMEMBER myset foo",
             "SREM myset hello",
             "SMEMBERS myset",
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+async fn send_generic_cmds(
+    framed: &mut Framed<TcpStream, Resp2>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    send_cmds(
+        framed,
+        vec![
+            "PING",
+            "PING Hello,World!",
+            "ECHO Hello,Echo!",
+            "EXISTS mykey myset myhash mylist myzset",
+            "TYPE mylist",
+            "KEYS my*",
         ],
     )
     .await?;
