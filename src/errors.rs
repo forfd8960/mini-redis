@@ -8,4 +8,7 @@ pub enum RedisError {
     StorageError(String),
     #[error("Persistence error: {0}")]
     PersistenceError(String),
+
+    #[error("unsupported command")]
+    UnsupportedCommand,
 }

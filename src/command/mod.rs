@@ -1,4 +1,13 @@
+use crate::{
+    command::{generic::GenericHandler, string::StringHandler},
+    errors::RedisError,
+    protocol::encoder::{
+        encode_integer, encode_nil, encode_ok, encode_simple_string, encode_string, encode_strings,
+    },
+    storage::{SetOptions, mem::MemStore},
+};
 use ordered_float::OrderedFloat;
+use redis_protocol::resp2::types::BytesFrame;
 
 pub mod generic; // general commands like PING, ECHO, EXISTS, TTL, EXPIRE, SCAN, KEYS, DEL, etc.
 pub mod hash; // hash commands like HSET, HGET, HMGET, HGETALL, etc.
@@ -19,7 +28,7 @@ pub enum Command {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GenericCommand {
-    Ping(String), // ping [message]
+    Ping(Option<String>), // ping [message]
     Echo(String),
     Exists(String),
     TTL(String),
@@ -37,39 +46,44 @@ pub enum StringCommand {
     /// https://redis.io/docs/latest/commands/set/
     /// set key value [EX seconds] [PX milliseconds] [EXAT timestamp-seconds]
     ///     [PXAT timestamp-milliseconds] [KEEPTTL] [NX|XX] [GET]
-    Set(String, String, SetOptions),
+    Set {
+        key: String,
+        value: String,
+        options: SetOptions,
+    },
     Incr(String),
-    IncrBy(String, i64),
+    IncrBy {
+        key: String,
+        increment: i64,
+    }, // incrby key increment
     Decr(String),
-    DecrBy(String, i64),
-    Mget(Vec<String>),               // mget key1 key2 ...
-    Mset(Vec<(String, String)>),     // mset key1 value1 key2 value2 ...
-    GetRange(String, usize, usize),  // getrange key start end
-    SetRange(String, usize, String), // setrange key offset value
-    Append(String, String),          // append key value
-    StrLen(String),                  // strlen key
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SetOptions {
-    pub ttl: Option<SetTTL>,
-    pub condition: Option<SetCondition>,
-    pub get: bool, // whether to return the old value
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SetTTL {
-    EX(u64),   // expire time in seconds
-    PX(u64),   // expire time in milliseconds
-    EXAT(u64), // expire time as Unix timestamp in seconds
-    PXAT(u64), // expire time as Unix timestamp in milliseconds
-    KeepTTL,   // keep the existing TTL,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SetCondition {
-    NX, // Only set the key if it does not already exist.
-    XX, // Only set the key if it already exists.
+    DecrBy {
+        key: String,
+        decrement: i64,
+    }, // decrby key decrement
+    Mget {
+        keys: Vec<String>,
+    }, // mget key1 key2 ...
+    Mset {
+        pairs: Vec<(String, String)>,
+    }, // mset key1 value1 key2 value2 ...
+    GetRange {
+        key: String,
+        start: usize,
+        end: usize,
+    }, // getrange key start end
+    SetRange {
+        key: String,
+        offset: usize,
+        value: String,
+    }, // setrange key offset value
+    Append {
+        key: String,
+        value: String,
+    }, // append key value
+    StrLen {
+        key: String,
+    }, // strlen key
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,4 +184,122 @@ pub fn is_sorted_set_command(cmd_name: &str) -> bool {
         cmd_name.to_uppercase().as_str(),
         "ZADD" | "ZREM" | "ZRANGE" | "ZRANGEWITHSCORES" | "ZRANK" | "ZSCORE"
     )
+}
+
+pub struct CommandHandler {
+    pub mem_storage: MemStore,
+}
+
+impl CommandHandler {
+    pub fn new(mem_storage: MemStore) -> Self {
+        Self { mem_storage }
+    }
+
+    pub fn handle_command(&mut self, cmd: Command) -> Result<BytesFrame, RedisError> {
+        match cmd {
+            Command::Generic(generic_cmd) => self.handle_generic_command(generic_cmd),
+            Command::String(string_cmd) => self.handle_string_command(string_cmd),
+            _ => Err(RedisError::UnsupportedCommand),
+        }
+    }
+
+    fn handle_generic_command(&mut self, cmd: GenericCommand) -> Result<BytesFrame, RedisError> {
+        match cmd {
+            GenericCommand::Ping(msg) => self.ping(msg),
+            GenericCommand::Echo(msg) => self.echo(msg.as_str()),
+            GenericCommand::Exists(key) => self.exists(&key),
+            GenericCommand::TTL(key) => self.ttl(&key),
+            GenericCommand::Expire(key, seconds) => self.expire(&key, seconds),
+            GenericCommand::Scan(cursor, pattern, count, type_filter) => {
+                self.scan(cursor, pattern.as_deref(), count, type_filter.as_deref())
+            }
+            GenericCommand::Keys(pattern) => self.keys(&pattern),
+            GenericCommand::Type(key) => self.get_type(&key),
+            GenericCommand::Del(key) => self.del(&key),
+        }
+    }
+
+    fn handle_string_command(&mut self, cmd: StringCommand) -> Result<BytesFrame, RedisError> {
+        match cmd {
+            StringCommand::Get(key) => {
+                let res = self.get(&key);
+                match res {
+                    Some(s_v) => Ok(encode_string(s_v)),
+                    None => Ok(encode_nil()),
+                }
+            }
+            StringCommand::Set {
+                key,
+                value,
+                options,
+            } => {
+                self.set(&key, value, Some(options));
+                Ok(encode_ok())
+            }
+            StringCommand::Incr(key) => {
+                let res = self.incr(&key);
+                match res {
+                    Some(i) => Ok(encode_integer(i)),
+                    None => Ok(encode_nil()),
+                }
+            }
+            StringCommand::IncrBy { key, increment } => {
+                let res = self.incrby(&key, increment);
+                match res {
+                    Some(i) => Ok(encode_integer(i)),
+                    None => Ok(encode_nil()),
+                }
+            }
+            StringCommand::Decr(key) => {
+                let res = self.decr(&key);
+                match res {
+                    Some(i) => Ok(encode_integer(i)),
+                    None => Ok(encode_nil()),
+                }
+            }
+            StringCommand::DecrBy { key, decrement } => {
+                let res = self.decrby(&key, decrement);
+                match res {
+                    Some(i) => Ok(encode_integer(i)),
+                    None => Ok(encode_nil()),
+                }
+            }
+            StringCommand::Mget { keys } => {
+                let values = self.mget(keys.iter().map(|k| k.as_str()).collect());
+                Ok(encode_strings(values))
+            }
+            StringCommand::Mset { pairs } => {
+                self.mset(pairs);
+                Ok(encode_ok())
+            }
+            StringCommand::GetRange { key, start, end } => {
+                let res = self.getrange(&key, start, end);
+                match res {
+                    Some(s) => Ok(encode_simple_string(s)),
+                    None => Ok(encode_simple_string("".to_string())),
+                }
+            }
+            StringCommand::SetRange { key, offset, value } => {
+                let res = self.setrange(&key, offset, value);
+                match res {
+                    Some(i) => Ok(encode_integer(i as i64)),
+                    None => Ok(encode_nil()),
+                }
+            }
+            StringCommand::Append { key, value } => {
+                let res = self.append(&key, &value);
+                match res {
+                    Some(i) => Ok(encode_integer(i as i64)),
+                    None => Ok(encode_nil()),
+                }
+            }
+            StringCommand::StrLen { key } => {
+                let res = self.strlen(&key);
+                match res {
+                    Some(i) => Ok(encode_integer(i as i64)),
+                    None => Ok(encode_nil()),
+                }
+            }
+        }
+    }
 }

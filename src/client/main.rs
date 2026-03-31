@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create framed stream with our RESP codec
     let mut framed = Framed::new(stream, Resp2::default());
 
-    send_ttl_to_key(&mut framed).await?;
+    send_string_cmds(&mut framed).await?;
 
     Ok(())
 }
