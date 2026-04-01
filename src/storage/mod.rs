@@ -1,6 +1,6 @@
 use crate::{
     errors::RedisError,
-    value::{HashEntry, StringValue},
+    value::{HashEntry, ListInsertPivot, ListMoveDirection, StringValue},
 };
 
 pub mod mem;
@@ -25,18 +25,6 @@ pub enum SetTTL {
 pub enum SetCondition {
     NX, // Only set the key if it does not already exist.
     XX, // Only set the key if it already exists.
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ListInsertPivot {
-    Before,
-    After,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ListMoveDirection {
-    Left,
-    Right,
 }
 
 pub trait Storage {

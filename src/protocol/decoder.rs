@@ -429,7 +429,7 @@ fn decode_sorted_set_command(parts: &[String]) -> Result<Command, RedisError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::{ListInsertPivot, ListMoveDirection};
+    use crate::value::{ListInsertPivot, ListMoveDirection};
 
     use super::*;
 

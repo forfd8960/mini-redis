@@ -1,4 +1,4 @@
-use crate::value::{HashValue, ListValue, RedisValue, SetValue, SortedSetValue, StringValue};
+use crate::value::{HashValue, RedisValue, SetValue, SortedSetValue, StringValue, list::ListValue};
 use anyhow::{Result, anyhow};
 use redis_protocol::resp2::types::BytesFrame;
 use tokio_util::bytes::Bytes;

@@ -7,8 +7,9 @@ use dashmap::DashMap;
 
 use crate::{
     errors::RedisError,
-    storage::{ListMoveDirection, SetOptions, SetTTL, Storage},
-    value::{ListValue, RedisValue, StringValue, Value},
+    storage::{SetOptions, SetTTL, Storage},
+    value::{ListInsertPivot, ListMoveDirection, RedisValue, StringValue, Value},
+    value::list::ListValue,
 };
 
 pub struct MemStore {
@@ -504,14 +505,27 @@ impl Storage for MemStore {
         Ok(true)
     }
 
+
+    /// Inserts element in the list stored at key either before or after the reference value pivot.
+    /// When key does not exist, it is considered an empty list and no operation is performed.
+    /// An error is returned when key exists but does not hold a list value.
     fn linsert(
         &mut self,
         key: &str,
-        position: super::ListInsertPivot,
+        position: ListInsertPivot,
         pivot: &str,
         value: &str,
     ) -> Result<bool, RedisError> {
-        todo!()
+        /*
+        LINSERT mylist BEFORE "x" "new"   # insert "new" before "x"
+        LINSERT mylist AFTER  "x" "new"   # insert "new" after "x"
+        */
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::List(l) = &mut v.value {
+                return l.linsert(position, pivot, value);
+            }
+        }
+        Ok(false)
     }
 
     fn lset(&mut self, key: &str, index: i64, value: &str) -> Result<(), RedisError> {

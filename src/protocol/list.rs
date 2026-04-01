@@ -1,7 +1,7 @@
 use crate::{
     command::{Command, ListCommand},
     errors::RedisError,
-    storage::{ListInsertPivot, ListMoveDirection},
+    value::{ListInsertPivot, ListMoveDirection},
 };
 
 pub fn decode_list_command(parts: &[String]) -> Result<Command, RedisError> {

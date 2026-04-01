@@ -4,7 +4,8 @@ use crate::{
     protocol::encoder::{
         encode_integer, encode_nil, encode_ok, encode_simple_string, encode_string, encode_strings,
     },
-    storage::{ListInsertPivot, ListMoveDirection, SetOptions, mem::MemStore},
+    storage::{SetOptions, mem::MemStore},
+    value::{ListInsertPivot, ListMoveDirection},
 };
 use ordered_float::OrderedFloat;
 use redis_protocol::resp2::types::BytesFrame;
@@ -108,7 +109,7 @@ pub enum ListCommand {
     Lrange(String, i64, i64), // lrange key start stop
 
     Lrem(String, String, i64), // lrem key value count
-    LTrim(String, i64, i64),     // ltrim keep only indices 1–3, delete everything else
+    LTrim(String, i64, i64),   // ltrim keep only indices 1–3, delete everything else
 
     /// LINSERT mylist BEFORE "x" "new"   # insert "new" before "x"
     /// LINSERT mylist AFTER  "x" "new"   # insert "new" after "x"
@@ -131,7 +132,7 @@ pub enum ListCommand {
     }, // lmove source destination LEFT|RIGHT LEFT|RIGHT
 
     LIndex(String, i64), // lindex key index
-    Llen(String),          // llen key
+    Llen(String),        // llen key
 
     // # Blocks until an element is available (or timeout expires)
     BLpop(Vec<String>, u64), // blpop key1 key2 ... timeout

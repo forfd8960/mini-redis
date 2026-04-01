@@ -4,7 +4,8 @@ use crate::{
     command::CommandHandler,
     errors::RedisError,
     protocol::encoder::{encode_error, encode_ok},
-    storage::{ListInsertPivot, ListMoveDirection, Storage},
+    storage::Storage,
+    value::{ListInsertPivot, ListMoveDirection},
 };
 
 pub trait ListHandler {
@@ -17,27 +18,27 @@ pub trait ListHandler {
     fn lindex(&self, key: &str, index: i64) -> Result<BytesFrame, RedisError>;
     fn ltrim(&mut self, key: &str, start: i64, stop: i64) -> Result<BytesFrame, RedisError>;
     fn linsert(
-        &self,
+        &mut self,
         key: &str,
         pivot: &str,
         value: &str,
         position: ListInsertPivot,
     ) -> Result<BytesFrame, RedisError>;
 
-    fn lset(&self, key: &str, index: i64, value: &str) -> Result<BytesFrame, RedisError>;
+    fn lset(&mut self, key: &str, index: i64, value: &str) -> Result<BytesFrame, RedisError>;
 
     fn lmove(
-        &self,
+        &mut self,
         src: &str,
         dest: &str,
         source_side: ListMoveDirection,
         dest_side: ListMoveDirection,
     ) -> Result<BytesFrame, RedisError>;
 
-    fn blpop(&self, keys: Vec<&str>, timeout: u64) -> Result<BytesFrame, RedisError>;
-    fn brpop(&self, keys: Vec<&str>, timeout: u64) -> Result<BytesFrame, RedisError>;
+    fn blpop(&mut self, keys: Vec<&str>, timeout: u64) -> Result<BytesFrame, RedisError>;
+    fn brpop(&mut self, keys: Vec<&str>, timeout: u64) -> Result<BytesFrame, RedisError>;
     fn blmove(
-        &self,
+        &mut self,
         src: &str,
         dest: &str,
         source_side: ListMoveDirection,
@@ -120,21 +121,28 @@ impl ListHandler for CommandHandler {
     }
 
     fn linsert(
-        &self,
+        &mut self,
         key: &str,
         pivot: &str,
         value: &str,
         position: ListInsertPivot,
     ) -> Result<BytesFrame, RedisError> {
-        todo!()
+        let res = self.mem_storage.linsert(key, position, pivot, value)?;
+        let response = if res {
+            encode_ok()
+        } else {
+            encode_error("Pivot not found or key does not exist")
+        };
+        Ok(response)
     }
 
-    fn lset(&self, key: &str, index: i64, value: &str) -> Result<BytesFrame, RedisError> {
-        todo!()
+    fn lset(&mut self, key: &str, index: i64, value: &str) -> Result<BytesFrame, RedisError> {
+        let _ = self.mem_storage.lset(key, index, value)?;
+        Ok(encode_ok())
     }
 
     fn lmove(
-        &self,
+        &mut self,
         src: &str,
         dest: &str,
         source_side: ListMoveDirection,
@@ -143,16 +151,16 @@ impl ListHandler for CommandHandler {
         todo!()
     }
 
-    fn blpop(&self, keys: Vec<&str>, timeout: u64) -> Result<BytesFrame, RedisError> {
+    fn blpop(&mut self, keys: Vec<&str>, timeout: u64) -> Result<BytesFrame, RedisError> {
         todo!()
     }
 
-    fn brpop(&self, keys: Vec<&str>, timeout: u64) -> Result<BytesFrame, RedisError> {
+    fn brpop(&mut self, keys: Vec<&str>, timeout: u64) -> Result<BytesFrame, RedisError> {
         todo!()
     }
 
     fn blmove(
-        &self,
+        &mut self,
         src: &str,
         dest: &str,
         source_side: ListMoveDirection,

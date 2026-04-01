@@ -55,16 +55,17 @@ async fn send_list_cmds(
     send_cmds(
         framed,
         vec![
-            "LPUSH mylist hello",
-            "RPUSH mylist world",
-            "LRANGE mylist 0 -1",
-            "LINDEX mylist 0",
-            "LINDEX mylist -1",
+            // "LPUSH mylist hello",
+            // "RPUSH mylist world",
+            // "LRANGE mylist 0 -1",
+            // "LINDEX mylist 0",
+            // "LINDEX mylist -1",
+            // "LINSERT mylist BEFORE world there",
+            // "LINSERT mylist AFTER world HeiHei",
+            // "LRANGE mylist 0 -1",
             "LPUSH numbers 1 2 3 6",
             "LRANGE numbers 0 -1",
-            "LINDEX numbers 0",
-            "LINDEX numbers -1",
-            "LREM numbers 1 1",
+            "LTRIM numbers 0 2", // -> 1 2 3
             "LRANGE numbers 0 -1",
         ],
     )
