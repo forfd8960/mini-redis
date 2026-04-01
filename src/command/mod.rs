@@ -1,10 +1,10 @@
 use crate::{
-    command::{generic::GenericHandler, string::StringHandler},
+    command::{generic::GenericHandler, list::ListHandler, string::StringHandler},
     errors::RedisError,
     protocol::encoder::{
         encode_integer, encode_nil, encode_ok, encode_simple_string, encode_string, encode_strings,
     },
-    storage::{SetOptions, mem::MemStore},
+    storage::{ListInsertPivot, ListMoveDirection, SetOptions, mem::MemStore},
 };
 use ordered_float::OrderedFloat;
 use redis_protocol::resp2::types::BytesFrame;
@@ -87,12 +87,6 @@ pub enum StringCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ListInsertPivot {
-    Before,
-    After,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ListCommand {
     Lpush(String, Vec<String>), // lpush key value1 value2 ...
     Rpush(String, Vec<String>), // rpush key value1 value2 ...
@@ -106,9 +100,15 @@ pub enum ListCommand {
     Lpop(String, usize), // lpop key count
     Rpop(String, usize), // rpop key count
 
-    Lrange(String, usize, usize), // lrange key start stop
-    Lrem(String, String, usize),  // lrem key value count
-    LTrim(String, usize, usize),  // ltrim keep only indices 1–3, delete everything else
+    /*
+    LRANGE mylist 0 -1        # get all elements (0 = first, -1 = last)
+    LRANGE mylist 0 4         # get first 5 elements
+    LRANGE mylist -3 -1       # get last 3 elements
+    */
+    Lrange(String, i64, i64), // lrange key start stop
+
+    Lrem(String, String, usize), // lrem key value count
+    LTrim(String, i64, i64),     // ltrim keep only indices 1–3, delete everything else
 
     /// LINSERT mylist BEFORE "x" "new"   # insert "new" before "x"
     /// LINSERT mylist AFTER  "x" "new"   # insert "new" after "x"
@@ -119,26 +119,28 @@ pub enum ListCommand {
         value: String,
     }, // linsert key BEFORE|AFTER pivot value
 
+    LSet(String, usize, String), // lset key index value
+
     /// LMOVE src dest LEFT  RIGHT   # pop from src left, push to dest right
     /// LMOVE src dest RIGHT LEFT   # pop from src right, push to dest left
     LMove {
-        source: String,
-        destination: String,
-        source_side: String, // LEFT or RIGHT
-        dest_side: String,   // LEFT or RIGHT
+        src: String,
+        dest: String,
+        source_side: ListMoveDirection, // LEFT or RIGHT
+        dest_side: ListMoveDirection,   // LEFT or RIGHT
     }, // lmove source destination LEFT|RIGHT LEFT|RIGHT
     LIndex(String, usize), // lindex key index
     Llen(String),          // llen key
 
     // # Blocks until an element is available (or timeout expires)
-    BLpop(Vec<String>, usize), // blpop key1 key2 ... timeout
-    BRpop(Vec<String>, usize), // brpop key1 key2 ... timeout
-    BLMOVE {
-        source: String,
-        destination: String,
-        source_side: String, // LEFT or RIGHT
-        dest_side: String,   // LEFT or RIGHT
-        timeout: i64,
+    BLpop(Vec<String>, u64), // blpop key1 key2 ... timeout
+    BRpop(Vec<String>, u64), // brpop key1 key2 ... timeout
+    BLmove {
+        src: String,
+        dest: String,
+        source_side: ListMoveDirection, // LEFT or RIGHT
+        dest_side: ListMoveDirection,   // LEFT or RIGHT
+        timeout: u64,
     }, // blmove source destination LEFT|RIGHT LEFT|RIGHT timeout
 }
 
@@ -213,7 +215,20 @@ pub fn is_hash_command(cmd_name: &str) -> bool {
 pub fn is_list_command(cmd_name: &str) -> bool {
     matches!(
         cmd_name.to_uppercase().as_str(),
-        "LPUSH" | "RPUSH" | "LPOP" | "RPOP" | "LRANGE" | "LLEN" | "LREM"
+        "LPUSH"
+            | "RPUSH"
+            | "LPOP"
+            | "RPOP"
+            | "LRANGE"
+            | "LLEN"
+            | "LREM"
+            | "LTRIM"
+            | "LINSERT"
+            | "LSET"
+            | "LMOVE"
+            | "BLPOP"
+            | "BRPOP"
+            | "BLMOVE"
     )
 }
 
@@ -244,6 +259,7 @@ impl CommandHandler {
         match cmd {
             Command::Generic(generic_cmd) => self.handle_generic_command(generic_cmd),
             Command::String(string_cmd) => self.handle_string_command(string_cmd),
+            Command::List(list_cmd) => self.handle_list_commands(list_cmd),
             _ => Err(RedisError::UnsupportedCommand),
         }
     }
@@ -345,6 +361,36 @@ impl CommandHandler {
                     None => Ok(encode_nil()),
                 }
             }
+        }
+    }
+
+    fn handle_list_commands(&mut self, cmd: ListCommand) -> Result<BytesFrame, RedisError> {
+        match cmd {
+            ListCommand::Lpush(key, values) => self.lpush(&key, &values),
+            ListCommand::Rpush(key, values) => self.rpush(&key, &values),
+            ListCommand::Lpop(key, count) => self.lpop(&key, count),
+            ListCommand::Rpop(key, count) => self.rpop(&key, count),
+            ListCommand::Lrange(key, start, stop) => self.lrange(&key, start, stop),
+            ListCommand::Lrem(key, value, count) => self.lrem(&key, count as i64, &value),
+            ListCommand::LIndex(key, index) => self.lindex(&key, index as i64),
+            ListCommand::LTrim(key, start, stop) => self.ltrim(&key, start, stop),
+            ListCommand::LInsert {
+                key,
+                position,
+                pivot,
+                value,
+            } => self.linsert(&key, &pivot, &value, position),
+            ListCommand::LSet(key, index, value) => self.lset(&key, index, &value),
+            ListCommand::LMove {
+                src,
+                dest,
+                source_side,
+                dest_side,
+            } => self.lmove(&src, &dest, source_side, dest_side),
+            ListCommand::BLpop(keys, timeout) => {
+                self.blpop(keys.iter().map(|k| k.as_str()).collect(), timeout)
+            }
+            _ => Err(RedisError::UnsupportedCommand), // other list commands not implemented yet
         }
     }
 }

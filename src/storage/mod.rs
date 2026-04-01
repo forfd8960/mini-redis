@@ -1,4 +1,7 @@
-use crate::value::{Entry, HashEntry, StringValue};
+use crate::{
+    errors::RedisError,
+    value::{HashEntry, StringValue},
+};
 
 pub mod mem;
 
@@ -22,6 +25,18 @@ pub enum SetTTL {
 pub enum SetCondition {
     NX, // Only set the key if it does not already exist.
     XX, // Only set the key if it already exists.
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListInsertPivot {
+    Before,
+    After,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListMoveDirection {
+    Left,
+    Right,
 }
 
 pub trait Storage {
@@ -52,13 +67,48 @@ pub trait Storage {
     fn append(&mut self, key: &str, value: &str) -> Option<usize>;
     fn strlen(&self, key: &str) -> Option<usize>;
 
-    fn lpush(&mut self, key: &str, values: Vec<Entry>) -> usize;
-    fn rpush(&mut self, key: &str, values: Vec<Entry>) -> usize;
-    fn lpop(&mut self, key: &str, count: usize) -> Option<Vec<Entry>>;
-    fn rpop(&mut self, key: &str, count: usize) -> Option<Vec<Entry>>;
-    fn lrange(&self, key: &str, start: usize, stop: usize) -> Option<Vec<Entry>>;
-    fn llen(&self, key: &str) -> usize;
-    fn lrem(&mut self, key: &str, value: &Entry, count: usize) -> usize;
+    fn lpush(&mut self, key: &str, values: Vec<String>) -> Result<usize, RedisError>;
+    fn rpush(&mut self, key: &str, values: Vec<String>) -> Result<usize, RedisError>;
+    fn lpop(&mut self, key: &str, count: usize) -> Result<Option<Vec<String>>, RedisError>;
+    fn rpop(&mut self, key: &str, count: usize) -> Result<Option<Vec<String>>, RedisError>;
+    fn lrange(&self, key: &str, start: i64, stop: i64) -> Result<Option<Vec<String>>, RedisError>;
+    fn llen(&self, key: &str) -> Result<usize, RedisError>;
+    fn lrem(&mut self, key: &str, count: usize, value: &str) -> Result<usize, RedisError>;
+    fn lindex(&self, key: &str, index: i64) -> Result<Option<String>, RedisError>;
+    fn ltrim(&mut self, key: &str, start: i64, stop: i64) -> Result<bool, RedisError>;
+    fn linsert(
+        &mut self,
+        key: &str,
+        position: ListInsertPivot,
+        pivot: &str,
+        value: &str,
+    ) -> Result<bool, RedisError>;
+    fn lset(&mut self, key: &str, index: usize, value: &str) -> Result<(), RedisError>;
+    fn lmove(
+        &mut self,
+        src: &str,
+        dest: &str,
+        source_side: ListMoveDirection,
+        dest_side: ListMoveDirection,
+    ) -> Result<Option<String>, RedisError>;
+    fn blpop(
+        &mut self,
+        keys: Vec<&str>,
+        timeout: u64,
+    ) -> Result<Option<(String, String)>, RedisError>;
+    fn brpop(
+        &mut self,
+        keys: Vec<&str>,
+        timeout: u64,
+    ) -> Result<Option<(String, String)>, RedisError>;
+    fn blmove(
+        &mut self,
+        src: &str,
+        dest: &str,
+        source_side: ListMoveDirection,
+        dest_side: ListMoveDirection,
+        timeout: u64,
+    ) -> Result<Option<String>, RedisError>;
 
     fn hset(&mut self, key: &str, values: Vec<HashEntry>) -> bool;
     fn hget(&self, key: &str, field: &str) -> Option<HashEntry>;

@@ -1,10 +1,14 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use dashmap::DashMap;
 
 use crate::{
-    storage::{SetOptions, SetTTL, Storage},
-    value::{RedisValue, StringValue, Value},
+    errors::RedisError,
+    storage::{ListMoveDirection, SetOptions, SetTTL, Storage},
+    value::{ListValue, RedisValue, StringValue, Value},
 };
 
 pub struct MemStore {
@@ -346,34 +350,6 @@ impl Storage for MemStore {
         }
     }
 
-    fn lpush(&mut self, key: &str, values: Vec<crate::value::Entry>) -> usize {
-        todo!()
-    }
-
-    fn rpush(&mut self, key: &str, values: Vec<crate::value::Entry>) -> usize {
-        todo!()
-    }
-
-    fn lpop(&mut self, key: &str, count: usize) -> Option<Vec<crate::value::Entry>> {
-        todo!()
-    }
-
-    fn rpop(&mut self, key: &str, count: usize) -> Option<Vec<crate::value::Entry>> {
-        todo!()
-    }
-
-    fn lrange(&self, key: &str, start: usize, stop: usize) -> Option<Vec<crate::value::Entry>> {
-        todo!()
-    }
-
-    fn llen(&self, key: &str) -> usize {
-        todo!()
-    }
-
-    fn lrem(&mut self, key: &str, value: &crate::value::Entry, count: usize) -> usize {
-        todo!()
-    }
-
     fn hset(&mut self, key: &str, values: Vec<crate::value::HashEntry>) -> bool {
         todo!()
     }
@@ -395,6 +371,147 @@ impl Storage for MemStore {
     }
 
     fn hdel(&mut self, key: &str, field: &str) -> bool {
+        todo!()
+    }
+
+    fn lpush(&mut self, key: &str, values: Vec<String>) -> Result<usize, RedisError> {
+        self.data
+            .entry(key.to_string())
+            .or_insert_with(|| Value {
+                value: RedisValue::List(ListValue {
+                    items: VecDeque::new(),
+                }),
+                type_name: "list".to_string(),
+                expire_time: None,
+                last_access: Instant::now(),
+            })
+            .value
+            .left_extend_list(values)?;
+
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::List(l) = &v.value {
+                return Ok(l.len());
+            }
+        }
+        Ok(0)
+    }
+
+    fn rpush(&mut self, key: &str, values: Vec<String>) -> Result<usize, RedisError> {
+        self.data
+            .entry(key.to_string())
+            .or_insert_with(|| Value {
+                value: RedisValue::List(ListValue {
+                    items: VecDeque::new(),
+                }),
+                type_name: "list".to_string(),
+                expire_time: None,
+                last_access: Instant::now(),
+            })
+            .value
+            .extend_list(values)?;
+
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::List(l) = &v.value {
+                return Ok(l.len());
+            }
+        }
+        Ok(0)
+    }
+
+    fn lpop(&mut self, key: &str, count: usize) -> Result<Option<Vec<String>>, RedisError> {
+        todo!()
+    }
+
+    fn rpop(&mut self, key: &str, count: usize) -> Result<Option<Vec<String>>, RedisError> {
+        todo!()
+    }
+
+    /*
+    LRANGE mylist 0 -1        # get all elements (0 = first, -1 = last)
+    LRANGE mylist 0 4         # get first 5 elements
+    LRANGE mylist -3 -1       # get last 3 elements
+    */
+    fn lrange(&self, key: &str, start: i64, stop: i64) -> Result<Option<Vec<String>>, RedisError> {
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::List(l) = &v.value {
+                let len = l.items.len() as i64;
+                let start = if start >= 0 { start } else { len + start }.max(0);
+                let stop = if stop >= 0 { stop } else { len + stop }.max(0);
+
+                let items: Vec<String> = l.items.iter().cloned().collect();
+                return Ok(Some(items[start as usize..=stop as usize].to_vec()));
+            } else {
+                return Ok(Some(vec![]));
+            }
+        }
+
+        Ok(Some(vec![]))
+    }
+
+    fn llen(&self, key: &str) -> Result<usize, RedisError> {
+        todo!()
+    }
+
+    fn lrem(&mut self, key: &str, count: usize, value: &str) -> Result<usize, RedisError> {
+        todo!()
+    }
+
+    fn lindex(&self, key: &str, index: i64) -> Result<Option<String>, RedisError> {
+        todo!()
+    }
+
+    fn ltrim(&mut self, key: &str, start: i64, stop: i64) -> Result<bool, RedisError> {
+        todo!()
+    }
+
+    fn linsert(
+        &mut self,
+        key: &str,
+        position: super::ListInsertPivot,
+        pivot: &str,
+        value: &str,
+    ) -> Result<bool, RedisError> {
+        todo!()
+    }
+
+    fn lset(&mut self, key: &str, index: usize, value: &str) -> Result<(), RedisError> {
+        todo!()
+    }
+
+    fn lmove(
+        &mut self,
+        src: &str,
+        dest: &str,
+        source_side: ListMoveDirection,
+        dest_side: ListMoveDirection,
+    ) -> Result<Option<String>, RedisError> {
+        todo!()
+    }
+
+    fn blpop(
+        &mut self,
+        keys: Vec<&str>,
+        timeout: u64,
+    ) -> Result<Option<(String, String)>, RedisError> {
+        todo!()
+    }
+
+    fn brpop(
+        &mut self,
+        keys: Vec<&str>,
+        timeout: u64,
+    ) -> Result<Option<(String, String)>, RedisError> {
+        todo!()
+    }
+
+    fn blmove(
+        &mut self,
+        src: &str,
+        dest: &str,
+        source_side: ListMoveDirection,
+        dest_side: ListMoveDirection,
+        timeout: u64,
+    ) -> Result<Option<String>, RedisError> {
         todo!()
     }
 }

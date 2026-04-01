@@ -1,8 +1,10 @@
 use crate::{
     command::{
-        Command, GenericCommand, ListCommand, StringCommand, is_generic_command, is_hash_command, is_list_command, is_set_command, is_sorted_set_command, is_string_command
+        Command, GenericCommand, ListCommand, StringCommand, is_generic_command, is_hash_command,
+        is_list_command, is_set_command, is_sorted_set_command, is_string_command,
     },
     errors::RedisError,
+    protocol::list::decode_list_command,
     storage::{SetCondition, SetOptions, SetTTL},
 };
 
@@ -389,78 +391,6 @@ fn build_set_command(args: &[String]) -> Result<Command, RedisError> {
     }))
 }
 
-fn decode_list_command(parts: &[String]) -> Result<Command, RedisError> {
-    let cmd_name = parts[0].to_uppercase();
-    let args = &parts[1..];
-
-    match cmd_name.as_str() {
-        "LPUSH" | "RPUSH" => {
-            if args.len() < 2 {
-                return Err(RedisError::ProtocolError(format!(
-                    "{} requires at least 2 arguments",
-                    cmd_name
-                )));
-            }
-            let key = args[0].clone();
-            let values = args[1..].to_vec();
-            if cmd_name == "LPUSH" {
-                Ok(Command::List(ListCommand::Lpush(key, values)))
-            } else {
-                Ok(Command::List(ListCommand::Rpush(key, values)))
-            }
-        }
-        "LPOP" | "RPOP" => {
-            if args.len() != 2 {
-                return Err(RedisError::ProtocolError(format!(
-                    "{} requires exactly 2 arguments",
-                    cmd_name
-                )));
-            }
-            let key = args[0].clone();
-            let count = args[1].parse::<usize>().map_err(|e| {
-                RedisError::ProtocolError(format!("Invalid count value for {}: {}", cmd_name, e))
-            })?;
-            if cmd_name == "LPOP" {
-                Ok(Command::List(ListCommand::Lpop(key, count)))
-            } else {
-                Ok(Command::List(ListCommand::Rpop(key, count)))
-            }
-        }
-        "LRANGE" => {
-            if args.len() != 3 {
-                return Err(RedisError::ProtocolError(format!(
-                    "LRANGE requires exactly 3 arguments",
-                )));
-            }
-            let key = args[0].clone();
-            let start = args[1].parse::<usize>().map_err(|e| {
-                RedisError::ProtocolError(format!("Invalid start value for LRANGE: {}", e))
-            })?;
-            let stop = args[2].parse::<usize>().map_err(|e| {
-                RedisError::ProtocolError(format!("Invalid stop value for LRANGE: {}", e))
-            })?;
-            Ok(Command::List(ListCommand::Lrange(key, start, stop)))
-        }
-
-        "LREM" => {
-            if args.len() != 3 {
-                return Err(RedisError::ProtocolError(format!(
-                    "LREM requires exactly 3 arguments",
-                )));
-            }       let key = args[0].clone();
-            let value = args[1].clone();
-            let count = args[2].parse::<usize>().map_err(|e| {
-                RedisError::ProtocolError(format!("Invalid count value for LREM: {}", e))
-            })?;
-            Ok(Command::List(ListCommand::Lrem(key, value, count)))
-        }
-        _ => Err(RedisError::ProtocolError(format!(
-            "Unknown list command: {}",
-            cmd_name
-        ))),
-    }
-}
-
 fn decode_hash_command(parts: &[String]) -> Result<Command, RedisError> {
     let cmd_name = parts[0].to_uppercase();
     let args = &parts[1..];
@@ -483,7 +413,6 @@ fn decode_set_command(parts: &[String]) -> Result<Command, RedisError> {
             cmd_name
         ))),
     }
-
 }
 
 fn decode_sorted_set_command(parts: &[String]) -> Result<Command, RedisError> {
@@ -500,6 +429,8 @@ fn decode_sorted_set_command(parts: &[String]) -> Result<Command, RedisError> {
 
 #[cfg(test)]
 mod tests {
+    use crate::storage::{ListInsertPivot, ListMoveDirection};
+
     use super::*;
 
     #[test]
@@ -612,6 +543,162 @@ mod tests {
                     get: false,
                 },
             })
+        );
+    }
+
+    #[test]
+    fn test_decode_list_command_lpush() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"LPUSH".to_vec()),
+            Frame::BulkString(b"mylist".to_vec()),
+            Frame::BulkString(b"value1".to_vec()),
+            Frame::BulkString(b"value2".to_vec()),
+        ]);
+        let cmd = decode_frame(frame).unwrap();
+        assert_eq!(
+            cmd,
+            Command::List(ListCommand::Lpush(
+                "mylist".to_string(),
+                vec!["value1".to_string(), "value2".to_string()]
+            ))
+        );
+    }
+
+    #[test]
+    fn test_decode_list_command_lpop() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"LPOP".to_vec()),
+            Frame::BulkString(b"mylist".to_vec()),
+            Frame::BulkString(b"2".to_vec()),
+        ]);
+        let cmd = decode_frame(frame).unwrap();
+        assert_eq!(
+            cmd,
+            Command::List(ListCommand::Lpop("mylist".to_string(), 2))
+        );
+    }
+
+    #[test]
+    fn test_decode_list_command_lrange() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"LRANGE".to_vec()),
+            Frame::BulkString(b"mylist".to_vec()),
+            Frame::BulkString(b"0".to_vec()),
+            Frame::BulkString(b"-1".to_vec()),
+        ]);
+        let cmd = decode_frame(frame).unwrap();
+        assert_eq!(
+            cmd,
+            Command::List(ListCommand::Lrange("mylist".to_string(), 0, -1))
+        );
+    }
+
+    #[test]
+    fn test_decode_list_insert() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"LINSERT".to_vec()),
+            Frame::BulkString(b"mylist".to_vec()),
+            Frame::BulkString(b"BEFORE".to_vec()),
+            Frame::BulkString(b"value".to_vec()),
+            Frame::BulkString(b"newvalue".to_vec()),
+        ]);
+
+        let cmd = decode_frame(frame);
+        println!("Decoded command: {:?}", cmd);
+
+        assert!(cmd.is_ok());
+        let cmd = cmd.unwrap();
+
+        assert_eq!(
+            cmd,
+            Command::List(ListCommand::LInsert {
+                key: "mylist".to_string(),
+                position: ListInsertPivot::Before,
+                pivot: "value".to_string(),
+                value: "newvalue".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_list_move() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"LMOVE".to_vec()),
+            Frame::BulkString(b"source".to_vec()),
+            Frame::BulkString(b"destination".to_vec()),
+            Frame::BulkString(b"LEFT".to_vec()),
+            Frame::BulkString(b"RIGHT".to_vec()),
+        ]);
+        let cmd = decode_frame(frame).unwrap();
+        assert_eq!(
+            cmd,
+            Command::List(ListCommand::LMove {
+                src: "source".to_string(),
+                dest: "destination".to_string(),
+                source_side: ListMoveDirection::Left,
+                dest_side: ListMoveDirection::Right,
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_list_blmove_with_timeout() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"BLMOVE".to_vec()),
+            Frame::BulkString(b"source".to_vec()),
+            Frame::BulkString(b"destination".to_vec()),
+            Frame::BulkString(b"LEFT".to_vec()),
+            Frame::BulkString(b"RIGHT".to_vec()),
+            Frame::BulkString(b"5".to_vec()),
+        ]);
+
+        let cmd_res = decode_frame(frame);
+        assert!(cmd_res.is_ok());
+        let cmd = cmd_res.unwrap();
+
+        assert_eq!(
+            cmd,
+            Command::List(ListCommand::BLmove {
+                src: "source".to_string(),
+                dest: "destination".to_string(),
+                source_side: ListMoveDirection::Left,
+                dest_side: ListMoveDirection::Right,
+                timeout: 5,
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_list_lrem() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"LREM".to_vec()),
+            Frame::BulkString(b"mylist".to_vec()),
+            Frame::BulkString(b"value".to_vec()),
+            Frame::BulkString(b"2".to_vec()),
+        ]);
+        let cmd = decode_frame(frame).unwrap();
+        assert_eq!(
+            cmd,
+            Command::List(ListCommand::Lrem(
+                "mylist".to_string(),
+                "value".to_string(),
+                2
+            ))
+        );
+    }
+
+    #[test]
+    fn test_decode_list_ltrim() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"LTRIM".to_vec()),
+            Frame::BulkString(b"mylist".to_vec()),
+            Frame::BulkString(b"1".to_vec()),
+            Frame::BulkString(b"3".to_vec()),
+        ]);
+        let cmd = decode_frame(frame).unwrap();
+        assert_eq!(
+            cmd,
+            Command::List(ListCommand::LTrim("mylist".to_string(), 1, 3))
         );
     }
 }

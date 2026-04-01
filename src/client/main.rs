@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create framed stream with our RESP codec
     let mut framed = Framed::new(stream, Resp2::default());
 
-    send_generic_cmds(&mut framed).await?;
+    send_list_cmds(&mut framed).await?;
 
     Ok(())
 }
@@ -43,6 +43,21 @@ async fn send_string_cmds(
             "GET anotherkey",
             "MSET key1 value1 key2 value2",
             "MGET key1 key2 key3", // key3 does not exist
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+async fn send_list_cmds(
+    framed: &mut Framed<TcpStream, Resp2>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    send_cmds(
+        framed,
+        vec![
+            "LPUSH mylist hello",
+            "RPUSH mylist world",
+            "LRANGE mylist 0 -1",
         ],
     )
     .await?;

@@ -1,10 +1,4 @@
-use redis_protocol::resp2::types::BytesFrame;
-
 use crate::command::{CommandHandler, StringCommand};
-use crate::errors::RedisError;
-use crate::protocol::encoder::{
-    encode_integer, encode_nil, encode_ok, encode_string, encode_strings,
-};
 use crate::storage::{SetOptions, Storage};
 use crate::value::StringValue;
 
@@ -70,93 +64,6 @@ impl StringHandler for CommandHandler {
 
     fn strlen(&self, key: &str) -> Option<usize> {
         self.mem_storage.strlen(key)
-    }
-}
-
-pub fn handle_string_command(
-    handler: &mut CommandHandler,
-    cmd: StringCommand,
-) -> Result<BytesFrame, RedisError> {
-    match cmd {
-        StringCommand::Get(key) => {
-            let res = handler.get(&key);
-            match res {
-                Some(s_v) => Ok(encode_string(s_v)),
-                None => Ok(encode_nil()),
-            }
-        }
-        StringCommand::Set {
-            key,
-            value,
-            options,
-        } => {
-            handler.set(&key, value, Some(options));
-            Ok(encode_ok())
-        }
-        StringCommand::Incr(key) => {
-            let res = handler.incr(&key);
-            match res {
-                Some(i) => Ok(encode_integer(i)),
-                None => Ok(encode_nil()),
-            }
-        }
-        StringCommand::IncrBy { key, increment } => {
-            let res = handler.incrby(&key, increment);
-            match res {
-                Some(i) => Ok(encode_integer(i)),
-                None => Ok(encode_nil()),
-            }
-        }
-        StringCommand::Decr(key) => {
-            let res = handler.decr(&key);
-            match res {
-                Some(i) => Ok(encode_integer(i)),
-                None => Ok(encode_nil()),
-            }
-        }
-        StringCommand::DecrBy { key, decrement } => {
-            let res = handler.decrby(&key, decrement);
-            match res {
-                Some(i) => Ok(encode_integer(i)),
-                None => Ok(encode_nil()),
-            }
-        }
-        StringCommand::Mget { keys } => {
-            let values = handler.mget(keys.iter().map(|k| k.as_str()).collect());
-            Ok(encode_strings(values))
-        }
-        StringCommand::Mset { pairs } => {
-            handler.mset(pairs);
-            Ok(encode_ok())
-        }
-        StringCommand::GetRange { key, start, end } => {
-            let res = handler.getrange(&key, start, end);
-            match res {
-                Some(s) => Ok(encode_string(StringValue::Raw(s))),
-                None => Ok(encode_string(StringValue::Raw("".to_string()))),
-            }
-        }
-        StringCommand::SetRange { key, offset, value } => {
-            let res = handler.setrange(&key, offset, value);
-            match res {
-                Some(i) => Ok(encode_integer(i as i64)),
-                None => Ok(encode_nil()),
-            }
-        }
-        StringCommand::Append { key, value } => {
-            let res = handler.append(&key, &value);
-            match res {
-                Some(i) => Ok(encode_integer(i as i64)),
-                None => Ok(encode_nil()),
-            }
-        }
-        StringCommand::StrLen { key } => {
-            let res = handler.strlen(&key);
-            match res {
-                Some(i) => Ok(encode_integer(i as i64)),
-                None => Ok(encode_nil()),
-            }
-        }
     }
 }
 
