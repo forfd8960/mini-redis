@@ -43,14 +43,112 @@ pub struct ListValue {
 }
 
 impl ListValue {
-    pub fn new() -> Self {
+    pub fn new(cap: usize) -> Self {
         ListValue {
-            items: VecDeque::new(),
+            items: VecDeque::with_capacity(cap),
         }
     }
 
     pub fn len(&self) -> usize {
         self.items.len()
+    }
+
+    pub fn lrem(&mut self, count: i64, value: &str) -> usize {
+        let mut removed = 0;
+        if count == 0 {
+            self.items.retain(|v| {
+                if v == value {
+                    removed += 1;
+                    false
+                } else {
+                    true
+                }
+            });
+        } else if count > 0 {
+            let mut to_remove = count as usize;
+            self.items.retain(|v| {
+                if v == value && to_remove > 0 {
+                    removed += 1;
+                    to_remove -= 1;
+                    false
+                } else {
+                    true
+                }
+            });
+        } else {
+            let mut to_remove = (-count) as usize;
+            let mut rev_items = self.items.iter().rev().cloned().collect::<Vec<_>>();
+            rev_items.retain(|v| {
+                if v == value && to_remove > 0 {
+                    removed += 1;
+                    to_remove -= 1;
+                    false
+                } else {
+                    true
+                }
+            });
+
+            let mut new_queue = VecDeque::with_capacity(rev_items.len());
+            for item in rev_items.into_iter().rev() {
+                new_queue.push_back(item);
+            }
+            self.items = new_queue;
+        }
+        removed
+    }
+
+    pub fn lset(&mut self, index: i64, value: &str) -> Result<(), RedisError> {
+        let idx = if index >= 0 {
+            index as usize
+        } else {
+            let abs_index = (-index) as usize;
+            if abs_index > self.items.len() {
+                return Err(RedisError::StorageError(format!(
+                    "Index out of range: {}",
+                    index
+                )));
+            }
+            self.items.len() - abs_index
+        };
+
+        if idx >= self.items.len() {
+            return Err(RedisError::StorageError(format!(
+                "Index out of range: {}",
+                index
+            )));
+        }
+
+        self.items[idx] = value.to_string();
+        Ok(())
+    }
+
+    pub fn ltrim(&mut self, start: i64, stop: i64) -> Result<bool, RedisError> {
+        let len = self.items.len() as i64;
+        let start = if start >= 0 { start } else { len + start };
+        let stop = if stop >= 0 { stop } else { len + stop };
+
+        if start < 0 || stop < 0 || start >= len || stop >= len {
+            return Err(RedisError::StorageError(format!(
+                "Index out of range: start={}, stop={}, list length={}",
+                start, stop, len
+            )));
+        }
+
+        let new_items = self
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| {
+                if i as i64 >= start && i as i64 <= stop {
+                    Some(v.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<VecDeque<_>>();
+
+        self.items = new_items;
+        Ok(true)
     }
 }
 
@@ -125,5 +223,77 @@ impl RedisValue {
                 "Cannot extend non-list value".to_string(),
             )),
         }
+    }
+
+    pub fn pop_list(&mut self, count: usize, from_left: bool) -> Result<Vec<String>, RedisError> {
+        match self {
+            RedisValue::List(l) => {
+                let mut result = Vec::new();
+                for _ in 0..count {
+                    let item = if from_left {
+                        l.items.pop_front()
+                    } else {
+                        l.items.pop_back()
+                    };
+                    match item {
+                        Some(v) => result.push(v),
+                        None => break,
+                    }
+                }
+                Ok(result)
+            }
+            _ => Err(RedisError::StorageError(
+                "Cannot pop from non-list value".to_string(),
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_list_lrem() {
+        let mut list = ListValue::new(10);
+        list.items.extend(vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+        ]);
+
+        assert_eq!(list.lrem(0, "a"), 2);
+        assert_eq!(list.items, VecDeque::from(vec![
+            "b".to_string(),
+            "c".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+        ]));
+
+        list.items.extend(vec![
+            "a".to_string(),
+            "a".to_string(),
+            "a".to_string(),
+        ]);
+
+        assert_eq!(list.lrem(2, "a"), 2);
+        assert_eq!(list.items, VecDeque::from(vec![
+            "b".to_string(),
+            "c".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "a".to_string(),
+        ]));
+
+        assert_eq!(list.lrem(-1, "a"), 1);
+        assert_eq!(list.items, VecDeque::from(vec![
+            "b".to_string(),
+            "c".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+        ]));
     }
 }

@@ -73,7 +73,7 @@ pub trait Storage {
     fn rpop(&mut self, key: &str, count: usize) -> Result<Option<Vec<String>>, RedisError>;
     fn lrange(&self, key: &str, start: i64, stop: i64) -> Result<Option<Vec<String>>, RedisError>;
     fn llen(&self, key: &str) -> Result<usize, RedisError>;
-    fn lrem(&mut self, key: &str, count: usize, value: &str) -> Result<usize, RedisError>;
+    fn lrem(&mut self, key: &str, count: i64, value: &str) -> Result<usize, RedisError>;
     fn lindex(&self, key: &str, index: i64) -> Result<Option<String>, RedisError>;
     fn ltrim(&mut self, key: &str, start: i64, stop: i64) -> Result<bool, RedisError>;
     fn linsert(
@@ -83,7 +83,7 @@ pub trait Storage {
         pivot: &str,
         value: &str,
     ) -> Result<bool, RedisError>;
-    fn lset(&mut self, key: &str, index: usize, value: &str) -> Result<(), RedisError>;
+    fn lset(&mut self, key: &str, index: i64, value: &str) -> Result<(), RedisError>;
     fn lmove(
         &mut self,
         src: &str,

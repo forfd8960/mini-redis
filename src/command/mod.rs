@@ -107,7 +107,7 @@ pub enum ListCommand {
     */
     Lrange(String, i64, i64), // lrange key start stop
 
-    Lrem(String, String, usize), // lrem key value count
+    Lrem(String, String, i64), // lrem key value count
     LTrim(String, i64, i64),     // ltrim keep only indices 1–3, delete everything else
 
     /// LINSERT mylist BEFORE "x" "new"   # insert "new" before "x"
@@ -119,7 +119,7 @@ pub enum ListCommand {
         value: String,
     }, // linsert key BEFORE|AFTER pivot value
 
-    LSet(String, usize, String), // lset key index value
+    LSet(String, i64, String), // lset key index value
 
     /// LMOVE src dest LEFT  RIGHT   # pop from src left, push to dest right
     /// LMOVE src dest RIGHT LEFT   # pop from src right, push to dest left
@@ -129,7 +129,8 @@ pub enum ListCommand {
         source_side: ListMoveDirection, // LEFT or RIGHT
         dest_side: ListMoveDirection,   // LEFT or RIGHT
     }, // lmove source destination LEFT|RIGHT LEFT|RIGHT
-    LIndex(String, usize), // lindex key index
+
+    LIndex(String, i64), // lindex key index
     Llen(String),          // llen key
 
     // # Blocks until an element is available (or timeout expires)
@@ -224,6 +225,7 @@ pub fn is_list_command(cmd_name: &str) -> bool {
             | "LREM"
             | "LTRIM"
             | "LINSERT"
+            | "LINDEX"
             | "LSET"
             | "LMOVE"
             | "BLPOP"

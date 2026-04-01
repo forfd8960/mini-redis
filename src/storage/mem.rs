@@ -419,11 +419,22 @@ impl Storage for MemStore {
     }
 
     fn lpop(&mut self, key: &str, count: usize) -> Result<Option<Vec<String>>, RedisError> {
-        todo!()
+        let poped_values = if let Some(mut v) = self.data.get_mut(key) {
+            v.value.pop_list(count, true)?
+        } else {
+            vec![]
+        };
+        Ok(Some(poped_values))
     }
 
     fn rpop(&mut self, key: &str, count: usize) -> Result<Option<Vec<String>>, RedisError> {
-        todo!()
+        let poped_values = if let Some(mut v) = self.data.get_mut(key) {
+            v.value.pop_list(count, false)?
+        } else {
+            vec![]
+        };
+
+        Ok(Some(poped_values))
     }
 
     /*
@@ -449,19 +460,48 @@ impl Storage for MemStore {
     }
 
     fn llen(&self, key: &str) -> Result<usize, RedisError> {
-        todo!()
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::List(l) = &v.value {
+                return Ok(l.len());
+            }
+        }
+        Ok(0)
     }
 
-    fn lrem(&mut self, key: &str, count: usize, value: &str) -> Result<usize, RedisError> {
-        todo!()
+    /*
+    LREM mylist 2  "a"        # remove 2 occurrences of "a" from head→tail
+    LREM mylist -2 "a"        # remove 2 occurrences from tail→head
+    LREM mylist 0  "a"        # remove ALL occurrences of "a"
+    */
+    fn lrem(&mut self, key: &str, count: i64, value: &str) -> Result<usize, RedisError> {
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::List(l) = &mut v.value {
+                return Ok(l.lrem(count, value));
+            }
+        }
+        Ok(0)
     }
 
     fn lindex(&self, key: &str, index: i64) -> Result<Option<String>, RedisError> {
-        todo!()
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::List(l) = &v.value {
+                let len = l.items.len() as i64;
+                let index = if index >= 0 { index } else { len + index };
+                if index >= 0 && index < len {
+                    return Ok(Some(l.items[index as usize].clone()));
+                }
+            }
+        }
+        Ok(None)
     }
 
     fn ltrim(&mut self, key: &str, start: i64, stop: i64) -> Result<bool, RedisError> {
-        todo!()
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::List(l) = &mut v.value {
+                return l.ltrim(start, stop);
+            }
+        }
+        Ok(true)
     }
 
     fn linsert(
@@ -474,8 +514,13 @@ impl Storage for MemStore {
         todo!()
     }
 
-    fn lset(&mut self, key: &str, index: usize, value: &str) -> Result<(), RedisError> {
-        todo!()
+    fn lset(&mut self, key: &str, index: i64, value: &str) -> Result<(), RedisError> {
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::List(l) = &mut v.value {
+                return l.lset(index, value);
+            }
+        }
+        Ok(())
     }
 
     fn lmove(

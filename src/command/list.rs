@@ -3,6 +3,7 @@ use redis_protocol::resp2::types::BytesFrame;
 use crate::{
     command::CommandHandler,
     errors::RedisError,
+    protocol::encoder::{encode_error, encode_ok},
     storage::{ListInsertPivot, ListMoveDirection, Storage},
 };
 
@@ -23,7 +24,7 @@ pub trait ListHandler {
         position: ListInsertPivot,
     ) -> Result<BytesFrame, RedisError>;
 
-    fn lset(&self, key: &str, index: usize, value: &str) -> Result<BytesFrame, RedisError>;
+    fn lset(&self, key: &str, index: i64, value: &str) -> Result<BytesFrame, RedisError>;
 
     fn lmove(
         &self,
@@ -57,11 +58,29 @@ impl ListHandler for CommandHandler {
     }
 
     fn lpop(&mut self, key: &str, count: usize) -> Result<BytesFrame, RedisError> {
-        todo!()
+        let result = self.mem_storage.lpop(key, count)?;
+        match result {
+            Some(items) => Ok(BytesFrame::Array(
+                items
+                    .into_iter()
+                    .map(|s| BytesFrame::BulkString(s.into()))
+                    .collect(),
+            )),
+            None => Ok(BytesFrame::Null),
+        }
     }
 
     fn rpop(&mut self, key: &str, count: usize) -> Result<BytesFrame, RedisError> {
-        todo!()
+        let result = self.mem_storage.rpop(key, count)?;
+        match result {
+            Some(items) => Ok(BytesFrame::Array(
+                items
+                    .into_iter()
+                    .map(|s| BytesFrame::BulkString(s.into()))
+                    .collect(),
+            )),
+            None => Ok(BytesFrame::Null),
+        }
     }
 
     fn lrange(&self, key: &str, start: i64, stop: i64) -> Result<BytesFrame, RedisError> {
@@ -78,15 +97,26 @@ impl ListHandler for CommandHandler {
     }
 
     fn lrem(&mut self, key: &str, count: i64, value: &str) -> Result<BytesFrame, RedisError> {
-        todo!()
+        let result = self.mem_storage.lrem(key, count, value)?;
+        Ok(BytesFrame::Integer(result as i64))
     }
 
     fn lindex(&self, key: &str, index: i64) -> Result<BytesFrame, RedisError> {
-        todo!()
+        let res = self.mem_storage.lindex(key, index)?;
+        match res {
+            Some(item) => Ok(BytesFrame::BulkString(item.into())),
+            None => Ok(BytesFrame::Null),
+        }
     }
 
     fn ltrim(&mut self, key: &str, start: i64, stop: i64) -> Result<BytesFrame, RedisError> {
-        todo!()
+        let result = self.mem_storage.ltrim(key, start, stop)?;
+        let response = if result {
+            encode_ok()
+        } else {
+            encode_error("Fail to trim list")
+        };
+        Ok(response)
     }
 
     fn linsert(
@@ -99,7 +129,7 @@ impl ListHandler for CommandHandler {
         todo!()
     }
 
-    fn lset(&self, key: &str, index: usize, value: &str) -> Result<BytesFrame, RedisError> {
+    fn lset(&self, key: &str, index: i64, value: &str) -> Result<BytesFrame, RedisError> {
         todo!()
     }
 

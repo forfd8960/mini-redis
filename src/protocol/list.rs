@@ -65,7 +65,7 @@ pub fn decode_list_command(parts: &[String]) -> Result<Command, RedisError> {
             }
             let key = args[0].clone();
             let value = args[1].clone();
-            let count = args[2].parse::<usize>().map_err(|e| {
+            let count = args[2].parse::<i64>().map_err(|e| {
                 RedisError::ProtocolError(format!("Invalid count value for LREM: {}", e))
             })?;
             Ok(Command::List(ListCommand::Lrem(key, value, count)))
@@ -78,7 +78,7 @@ pub fn decode_list_command(parts: &[String]) -> Result<Command, RedisError> {
                 )));
             }
             let key = args[0].clone();
-            let index = args[1].parse::<usize>().map_err(|e| {
+            let index = args[1].parse::<i64>().map_err(|e| {
                 RedisError::ProtocolError(format!("Invalid index value for LSET: {}", e))
             })?;
             let value = args[2].clone();
@@ -121,7 +121,7 @@ pub fn decode_list_command(parts: &[String]) -> Result<Command, RedisError> {
                 )));
             }
             let key = args[0].clone();
-            let index = args[1].parse::<usize>().map_err(|e| {
+            let index = args[1].parse::<i64>().map_err(|e| {
                 RedisError::ProtocolError(format!("Invalid index value for LINDEX: {}", e))
             })?;
             Ok(Command::List(ListCommand::LIndex(key, index)))
