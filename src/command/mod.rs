@@ -87,14 +87,59 @@ pub enum StringCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListInsertPivot {
+    Before,
+    After,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ListCommand {
-    Lpush(String, Vec<String>),   // lpush key value1 value2 ...
-    Rpush(String, Vec<String>),   // rpush key value1 value2 ...
-    Lpop(String, usize),          // lpop key count
-    Rpop(String, usize),          // rpop key count
+    Lpush(String, Vec<String>), // lpush key value1 value2 ...
+    Rpush(String, Vec<String>), // rpush key value1 value2 ...
+
+    /*
+    LPOP mylist               # remove & return from left
+    RPOP mylist               # remove & return from right
+    LPOP mylist 3             # remove & return 3 elements from left
+    RPOP mylist 3             # remove & return 3 elements from right
+    */
+    Lpop(String, usize), // lpop key count
+    Rpop(String, usize), // rpop key count
+
     Lrange(String, usize, usize), // lrange key start stop
-    Llen(String),                 // llen key
     Lrem(String, String, usize),  // lrem key value count
+    LTrim(String, usize, usize),  // ltrim keep only indices 1–3, delete everything else
+
+    /// LINSERT mylist BEFORE "x" "new"   # insert "new" before "x"
+    /// LINSERT mylist AFTER  "x" "new"   # insert "new" after "x"
+    LInsert {
+        key: String,
+        position: ListInsertPivot, // whether to insert before or after the pivot
+        pivot: String,
+        value: String,
+    }, // linsert key BEFORE|AFTER pivot value
+
+    /// LMOVE src dest LEFT  RIGHT   # pop from src left, push to dest right
+    /// LMOVE src dest RIGHT LEFT   # pop from src right, push to dest left
+    LMove {
+        source: String,
+        destination: String,
+        source_side: String, // LEFT or RIGHT
+        dest_side: String,   // LEFT or RIGHT
+    }, // lmove source destination LEFT|RIGHT LEFT|RIGHT
+    LIndex(String, usize), // lindex key index
+    Llen(String),          // llen key
+
+    // # Blocks until an element is available (or timeout expires)
+    BLpop(Vec<String>, usize), // blpop key1 key2 ... timeout
+    BRpop(Vec<String>, usize), // brpop key1 key2 ... timeout
+    BLMOVE {
+        source: String,
+        destination: String,
+        source_side: String, // LEFT or RIGHT
+        dest_side: String,   // LEFT or RIGHT
+        timeout: i64,
+    }, // blmove source destination LEFT|RIGHT LEFT|RIGHT timeout
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
