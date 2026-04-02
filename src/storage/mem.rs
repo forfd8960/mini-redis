@@ -6,10 +6,7 @@ use std::{
 use dashmap::DashMap;
 
 use crate::{
-    errors::RedisError,
-    storage::{SetOptions, SetTTL, Storage},
-    value::{ListInsertPivot, ListMoveDirection, RedisValue, StringValue, Value},
-    value::list::ListValue,
+    command::list, errors::RedisError, storage::{SetOptions, SetTTL, Storage}, value::{ListInsertPivot, ListMoveDirection, RedisValue, StringValue, Value, list::ListValue}
 };
 
 pub struct MemStore {
@@ -544,7 +541,23 @@ impl Storage for MemStore {
         source_side: ListMoveDirection,
         dest_side: ListMoveDirection,
     ) -> Result<Option<String>, RedisError> {
-        todo!()
+        let src_list = self.data.get_mut(src);
+        if src_list.is_none() {
+            return Ok(None);
+        }
+
+        let dest_list = self.data.get_mut(dest);
+        if dest_list.is_none() {
+            return Ok(None);
+        }
+
+        if let RedisValue::List(l1) = &mut src_list.unwrap().value {
+            if let RedisValue::List(l2) = &mut dest_list.unwrap().value {
+                return l1.lmove(l2, source_side, dest_side);
+            }
+        }
+
+        Ok(None)
     }
 
     fn blpop(

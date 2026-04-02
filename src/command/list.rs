@@ -3,7 +3,7 @@ use redis_protocol::resp2::types::BytesFrame;
 use crate::{
     command::CommandHandler,
     errors::RedisError,
-    protocol::encoder::{encode_error, encode_ok},
+    protocol::encoder::{encode_error, encode_nil, encode_ok, encode_simple_string},
     storage::Storage,
     value::{ListInsertPivot, ListMoveDirection},
 };
@@ -148,7 +148,13 @@ impl ListHandler for CommandHandler {
         source_side: ListMoveDirection,
         dest_side: ListMoveDirection,
     ) -> Result<BytesFrame, RedisError> {
-        todo!()
+        let res = self.mem_storage.lmove(src, dest, source_side, dest_side)?;
+        match res {
+            Some(v) => {
+                Ok(encode_simple_string(v))
+            }
+            None => Ok(encode_nil())
+        }
     }
 
     fn blpop(&mut self, keys: Vec<&str>, timeout: u64) -> Result<BytesFrame, RedisError> {

@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 
-use crate::{errors::RedisError, value::ListInsertPivot};
+use crate::{
+    errors::RedisError,
+    value::{ListInsertPivot, ListMoveDirection},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListValue {
@@ -11,6 +14,12 @@ impl ListValue {
     pub fn new(cap: usize) -> Self {
         ListValue {
             items: VecDeque::with_capacity(cap),
+        }
+    }
+
+    pub fn from(values: Vec<String>) -> Self {
+        ListValue {
+            items: VecDeque::from(values),
         }
     }
 
@@ -122,6 +131,31 @@ impl ListValue {
         keep_range(&mut self.items, start as usize, (stop + 1) as usize);
         Ok(true)
     }
+
+    pub fn lmove(
+        &mut self,
+        dest: &mut ListValue,
+        src_side: ListMoveDirection,
+        dest_side: ListMoveDirection,
+    ) -> Result<Option<String>, RedisError> {
+        let move_item = match src_side {
+            ListMoveDirection::Left => self.items.pop_front(),
+            ListMoveDirection::Right => self.items.pop_back(),
+        };
+
+        if move_item.is_none() {
+            return Ok(None);
+        }
+
+        let target_item = move_item.unwrap();
+
+        match dest_side {
+            ListMoveDirection::Left => dest.items.push_front(target_item.clone()),
+            ListMoveDirection::Right => dest.items.push_back(target_item.clone()),
+        }
+
+        Ok(Some(target_item))
+    }
 }
 
 pub fn insert_before<T: PartialEq>(deque: &mut VecDeque<T>, target: &T, value: T) {
@@ -146,6 +180,7 @@ fn keep_range<T: PartialEq>(deque: &mut VecDeque<T>, start: usize, stop: usize) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
 
     #[test]
     fn test_insert_before() {
@@ -210,7 +245,130 @@ mod tests {
         assert!(list.ltrim(-3, -1).is_ok());
         assert_eq!(
             list.items,
-            VecDeque::from("c d e".split_whitespace().map(String::from).collect::<Vec<_>>())
+            VecDeque::from(
+                "c d e"
+                    .split_whitespace()
+                    .map(String::from)
+                    .collect::<Vec<_>>()
+            )
         );
+    }
+
+    #[test]
+    fn test_lmove() {
+        let mut src_list = ListValue::from(
+            "a b c"
+                .split_whitespace()
+                .map(|v| String::from(v))
+                .collect::<Vec<String>>(),
+        );
+
+        let mut dest_list = ListValue::from(
+            "D E F"
+                .split_whitespace()
+                .map(|v| String::from(v))
+                .collect::<Vec<String>>(),
+        );
+
+        let res = src_list.lmove(
+            &mut dest_list,
+            ListMoveDirection::Left,
+            ListMoveDirection::Right,
+        );
+
+        println!("src_list: {:?}", src_list);
+        println!("dest_list: {:?}", dest_list);
+
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), Some("a".to_string()));
+        assert_eq!(src_list.items, VecDeque::from("b c".split_whitespace().map(|v| v.to_string()).collect::<Vec<String>>()));
+        assert_eq!(dest_list.items, VecDeque::from("D E F a".split_whitespace().map(|v| v.to_string()).collect::<Vec<String>>()));
+    }
+
+    #[test]
+    fn test_lmove1() {
+        let mut src_list = ListValue::from(
+            "a b c"
+                .split_whitespace()
+                .map(|v| String::from(v))
+                .collect::<Vec<String>>(),
+        );
+
+        let mut dest_list = ListValue::from(
+            "D E F"
+                .split_whitespace()
+                .map(|v| String::from(v))
+                .collect::<Vec<String>>(),
+        );
+
+        let res = src_list.lmove(
+            &mut dest_list,
+            ListMoveDirection::Right,
+            ListMoveDirection::Left,
+        );
+
+        println!("src_list: {:?}", src_list);
+        println!("dest_list: {:?}", dest_list);
+
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), Some("c".to_string()));
+        assert_eq!(src_list.items, VecDeque::from("a b".split_whitespace().map(|v| v.to_string()).collect::<Vec<String>>()));
+        assert_eq!(dest_list.items, VecDeque::from("c D E F".split_whitespace().map(|v| v.to_string()).collect::<Vec<String>>()));
+    }
+
+    #[test]
+    fn test_lmove2() {
+        let mut src_list = ListValue::from(
+            "a b c"
+                .split_whitespace()
+                .map(|v| String::from(v))
+                .collect::<Vec<String>>(),
+        );
+
+        let mut dest_list = ListValue::from(
+            "D E F"
+                .split_whitespace()
+                .map(|v| String::from(v))
+                .collect::<Vec<String>>(),
+        );
+
+        let res = src_list.lmove(
+            &mut dest_list,
+            ListMoveDirection::Left,
+            ListMoveDirection::Left,
+        );
+
+        println!("src_list: {:?}", src_list);
+        println!("dest_list: {:?}", dest_list);
+
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), Some("a".to_string()));
+        assert_eq!(src_list.items, VecDeque::from("b c".split_whitespace().map(|v| v.to_string()).collect::<Vec<String>>()));
+        assert_eq!(dest_list.items, VecDeque::from("a D E F".split_whitespace().map(|v| v.to_string()).collect::<Vec<String>>()));
+    }
+
+    #[test]
+    fn test_list_lmove_no_item() {
+        let mut src_list = ListValue::from(vec![]);
+        let mut dest_list = ListValue::from(
+            "D E F"
+                .split_whitespace()
+                .map(|v| String::from(v))
+                .collect::<Vec<String>>(),
+        );
+
+        let res = src_list.lmove(
+            &mut dest_list,
+            ListMoveDirection::Left,
+            ListMoveDirection::Left,
+        );
+
+        println!("src_list: {:?}", src_list);
+        println!("dest_list: {:?}", dest_list);
+
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), None);
+        assert_eq!(src_list.items, VecDeque::from(vec![]));
+        assert_eq!(dest_list.items, VecDeque::from("D E F".split_whitespace().map(|v| v.to_string()).collect::<Vec<String>>()));
     }
 }

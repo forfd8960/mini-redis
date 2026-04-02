@@ -63,10 +63,13 @@ async fn send_list_cmds(
             // "LINSERT mylist BEFORE world there",
             // "LINSERT mylist AFTER world HeiHei",
             // "LRANGE mylist 0 -1",
-            "LPUSH numbers 1 2 3 6",
+            // "RPUSH numbers 1 2 3 6",
             "LRANGE numbers 0 -1",
-            "LTRIM numbers 0 2", // -> 1 2 3
-            "LRANGE numbers 0 -1",
+            // "RPUSH chars:01 A B C",
+            "LRANGE chars:01 0 -1",
+            "LMOVE numbers chars:01 RIGHT LEFT", // move 1 to back of chars:01
+            // "LTRIM numbers 0 2", // -> 1 2 3
+            "LRANGE chars:01 0 -1", // 6 A B C 1
         ],
     )
     .await?;
