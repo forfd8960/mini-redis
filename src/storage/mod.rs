@@ -1,3 +1,5 @@
+use ordered_float::OrderedFloat;
+
 use crate::{
     errors::RedisError,
     value::{HashEntry, ListInsertPivot, ListMoveDirection, StringValue},
@@ -99,10 +101,26 @@ pub trait Storage {
     ) -> Result<Option<String>, RedisError>;
 
     fn hset(&mut self, key: &str, values: Vec<HashEntry>) -> bool;
+    fn hsetnx(&mut self, key: &str, field: &str, value: &str) -> bool;
     fn hget(&self, key: &str, field: &str) -> Option<HashEntry>;
     fn hmget(&self, key: &str, fields: Vec<&str>) -> Vec<HashEntry>;
+    fn hmset(&mut self, key: &str, field_values: Vec<HashEntry>) -> bool;
     fn hgetall(&self, key: &str) -> Option<Vec<HashEntry>>;
+    fn hkeys(&self, key: &str) -> Option<Vec<String>>;
+    fn hvals(&self, key: &str) -> Option<Vec<String>>;
+    fn hlen(&self, key: &str) -> Option<usize>;
+    fn hexists(&self, key: &str, field: &str) -> bool;
+    fn hscan(
+        &self,
+        key: &str,
+        cursor: i64,
+        pattern: Option<&str>,
+        count: Option<usize>,
+    ) -> Option<(i64, Vec<HashEntry>)>;
+
     // HINCRBY
     fn hincrby(&mut self, key: &str, field: &str, increment: i64) -> Option<i64>;
-    fn hdel(&mut self, key: &str, field: &str) -> bool;
+    fn hincrbyfloat(&mut self, key: &str, field: &str, increment: OrderedFloat<f64>)
+    -> Option<f64>;
+    fn hdel(&mut self, key: &str, fields: &[String]) -> usize;
 }

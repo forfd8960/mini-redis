@@ -1,12 +1,18 @@
 use std::{
     collections::VecDeque,
     time::{Duration, Instant},
+    vec,
 };
 
 use dashmap::DashMap;
 
 use crate::{
-    command::list, errors::RedisError, storage::{SetOptions, SetTTL, Storage}, value::{ListInsertPivot, ListMoveDirection, RedisValue, StringValue, Value, list::ListValue}
+    errors::RedisError,
+    storage::{SetOptions, SetTTL, Storage},
+    value::{
+        HashEntry, ListInsertPivot, ListMoveDirection, RedisValue, StringValue, Value,
+        hash::HashValue, list::ListValue,
+    },
 };
 
 pub struct MemStore {
@@ -348,30 +354,6 @@ impl Storage for MemStore {
         }
     }
 
-    fn hset(&mut self, key: &str, values: Vec<crate::value::HashEntry>) -> bool {
-        todo!()
-    }
-
-    fn hget(&self, key: &str, field: &str) -> Option<crate::value::HashEntry> {
-        todo!()
-    }
-
-    fn hmget(&self, key: &str, fields: Vec<&str>) -> Vec<crate::value::HashEntry> {
-        todo!()
-    }
-
-    fn hgetall(&self, key: &str) -> Option<Vec<crate::value::HashEntry>> {
-        todo!()
-    }
-
-    fn hincrby(&mut self, key: &str, field: &str, increment: i64) -> Option<i64> {
-        todo!()
-    }
-
-    fn hdel(&mut self, key: &str, field: &str) -> bool {
-        todo!()
-    }
-
     fn lpush(&mut self, key: &str, values: Vec<String>) -> Result<usize, RedisError> {
         self.data
             .entry(key.to_string())
@@ -502,7 +484,6 @@ impl Storage for MemStore {
         Ok(true)
     }
 
-
     /// Inserts element in the list stored at key either before or after the reference value pivot.
     /// When key does not exist, it is considered an empty list and no operation is performed.
     /// An error is returned when key exists but does not hold a list value.
@@ -585,5 +566,169 @@ impl Storage for MemStore {
         timeout: u64,
     ) -> Result<Option<String>, RedisError> {
         todo!()
+    }
+
+    fn hset(&mut self, key: &str, values: Vec<HashEntry>) -> bool {
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::Hash(h) = &mut v.value {
+                return h.hset(values);
+            }
+        } else {
+            let value = Value {
+                value: RedisValue::Hash(HashValue::from(values)),
+                type_name: "hash".to_string(),
+                expire_time: None,
+                last_access: Instant::now(),
+            };
+            self.data.insert(key.to_string(), value);
+            return true;
+        }
+
+        false
+    }
+
+    fn hsetnx(&mut self, key: &str, field: &str, value: &str) -> bool {
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::Hash(h) = &mut v.value {
+                return h.hsetnx(field, value);
+            }
+        } else {
+            let value = Value {
+                value: RedisValue::Hash(HashValue::from(vec![(
+                    field.to_string(),
+                    value.to_string(),
+                )])),
+
+                type_name: "hash".to_string(),
+                expire_time: None,
+                last_access: Instant::now(),
+            };
+            self.data.insert(key.to_string(), value);
+            return true;
+        }
+        false
+    }
+
+    fn hget(&self, key: &str, field: &str) -> Option<HashEntry> {
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::Hash(h) = &v.value {
+                return h.hget(field);
+            }
+        }
+        None
+    }
+
+    fn hmget(&self, key: &str, fields: Vec<&str>) -> Vec<HashEntry> {
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::Hash(h) = &v.value {
+                return h.hmget(fields);
+            }
+        }
+        vec![]
+    }
+
+    fn hmset(&mut self, key: &str, field_values: Vec<HashEntry>) -> bool {
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::Hash(h) = &mut v.value {
+                return h.hmset(field_values);
+            }
+        } else {
+            let value = Value {
+                value: RedisValue::Hash(HashValue::from(field_values)),
+                type_name: "hash".to_string(),
+                expire_time: None,
+                last_access: Instant::now(),
+            };
+            self.data.insert(key.to_string(), value);
+            return true;
+        }
+        false
+    }
+
+    fn hgetall(&self, key: &str) -> Option<Vec<HashEntry>> {
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::Hash(h) = &v.value {
+                return Some(h.hgetall());
+            }
+        }
+        None
+    }
+
+    fn hkeys(&self, key: &str) -> Option<Vec<String>> {
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::Hash(h) = &v.value {
+                return Some(h.hkeys());
+            }
+        }
+        None
+    }
+
+    fn hvals(&self, key: &str) -> Option<Vec<String>> {
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::Hash(h) = &v.value {
+                return Some(h.hvals());
+            }
+        }
+        None
+    }
+
+    fn hlen(&self, key: &str) -> Option<usize> {
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::Hash(h) = &v.value {
+                return Some(h.len());
+            }
+        }
+        None
+    }
+
+    fn hexists(&self, key: &str, field: &str) -> bool {
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::Hash(h) = &v.value {
+                return h.hexists(field);
+            }
+        }
+        false
+    }
+
+    fn hscan(
+        &self,
+        key: &str,
+        cursor: i64,
+        pattern: Option<&str>,
+        count: Option<usize>,
+    ) -> Option<(i64, Vec<HashEntry>)> {
+        todo!()
+    }
+
+    fn hincrby(&mut self, key: &str, field: &str, increment: i64) -> Option<i64> {
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::Hash(h) = &mut v.value {
+                return h.hincrby(field, increment);
+            }
+        }
+        None
+    }
+
+    fn hincrbyfloat(
+        &mut self,
+        key: &str,
+        field: &str,
+        increment: ordered_float::OrderedFloat<f64>,
+    ) -> Option<f64> {
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::Hash(h) = &mut v.value {
+                return h.hincrbyfloat(field, increment);
+            }
+        }
+        None
+    }
+
+    fn hdel(&mut self, key: &str, fields: &[String]) -> usize {
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::Hash(h) = &mut v.value {
+                return h.hdel(fields);
+            }
+        }
+        0
     }
 }

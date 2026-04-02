@@ -1,21 +1,11 @@
-use crate::value::{HashValue, RedisValue, SetValue, SortedSetValue, StringValue, list::ListValue};
-use anyhow::{Result, anyhow};
+use crate::value::{
+    RedisValue, SetValue, SortedSetValue, StringValue, hash::HashValue, list::ListValue,
+};
 use redis_protocol::resp2::types::BytesFrame;
 use tokio_util::bytes::Bytes;
 
 pub fn encode_ok() -> BytesFrame {
     BytesFrame::SimpleString(Bytes::from(format!("{}", "OK")))
-}
-
-pub fn encode_value(value: RedisValue) -> Result<BytesFrame> {
-    match value {
-        RedisValue::String(v) => Ok(encode_string(v)),
-        RedisValue::List(v) => Ok(encode_list(v)),
-        RedisValue::Set(v) => Ok(encode_set(v)),
-        RedisValue::Hash(v) => Ok(encode_hash(v)),
-        RedisValue::Nil => Ok(encode_nil()),
-        _ => Err(anyhow!("{:?} not supported", value)),
-    }
 }
 
 pub fn encode_simple_string(s: String) -> BytesFrame {
@@ -68,9 +58,9 @@ pub fn encode_set(set_v: SetValue) -> BytesFrame {
     )
 }
 
-pub fn encode_hash(hash_v: HashValue) -> BytesFrame {
-    let mut arr = Vec::with_capacity(hash_v.items.len() * 2);
-    for (k, v) in hash_v.items {
+pub fn encode_hash(hash_v: Vec<(String, String)>) -> BytesFrame {
+    let mut arr = Vec::with_capacity(hash_v.len() * 2);
+    for (k, v) in hash_v {
         arr.push(BytesFrame::BulkString(k.into()));
         arr.push(BytesFrame::BulkString(v.into()));
     }
@@ -79,6 +69,10 @@ pub fn encode_hash(hash_v: HashValue) -> BytesFrame {
 
 pub fn encode_integer(v: i64) -> BytesFrame {
     BytesFrame::Integer(v)
+}
+
+pub fn encode_float(v: f64) -> BytesFrame {
+    BytesFrame::BulkString(v.to_string().into())
 }
 
 pub fn encode_error(err_msg: &str) -> BytesFrame {
@@ -93,7 +87,7 @@ pub fn encode_sorted_set(sorted_set: SortedSetValue) -> BytesFrame {
     let mut arr = Vec::with_capacity(sorted_set.members.len() * 2);
     for (member, score) in sorted_set.members {
         arr.push(BytesFrame::BulkString(member.into()));
-        arr.push(BytesFrame::BulkString(score.to_string().into()));
+        arr.push(encode_float(score.into_inner()));
     }
     BytesFrame::Array(arr)
 }

@@ -3,13 +3,16 @@ use std::{collections::HashMap, time::Instant};
 use ordered_float::OrderedFloat;
 use skiplist::SkipList;
 
-use crate::{errors::RedisError, value::list::ListValue};
+use crate::{
+    errors::RedisError,
+    value::{hash::HashValue, list::ListValue},
+};
 
+pub mod hash;
 pub mod list;
 
-
 pub type Entry = Vec<u8>;
-pub type HashEntry = (String, Entry);
+pub type HashEntry = (String, String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ListInsertPivot {
@@ -46,11 +49,6 @@ pub enum RedisValue {
 pub enum StringValue {
     Int(i64),
     Raw(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HashValue {
-    pub items: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

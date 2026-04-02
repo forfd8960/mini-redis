@@ -1,5 +1,12 @@
+use std::hash::Hash;
+
 use crate::{
-    command::{generic::GenericHandler, list::ListHandler, string::StringHandler},
+    command::{
+        generic::GenericHandler,
+        hash::{HashCommand, HashHandler},
+        list::ListHandler,
+        string::StringHandler,
+    },
     errors::RedisError,
     protocol::encoder::{
         encode_integer, encode_nil, encode_ok, encode_simple_string, encode_string, encode_strings,
@@ -22,7 +29,7 @@ pub enum Command {
     Generic(GenericCommand),
     String(StringCommand),
     List(ListCommand),
-    Hash(HashCommand),
+    Hash(hash::HashCommand),
     Set(SetCommand),
     SortedSet(SortedSetCommand),
 }
@@ -147,23 +154,6 @@ pub enum ListCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HashCommand {
-    Hset(String, Vec<(String, String)>), // hset key field1 value1 field2 value2 ...
-    Hget(String, String),                // hget key field
-    Hmget(String, Vec<String>),          // hmget key field1 field2 ...
-    Hgetall(String),                     // hgetall key
-    Hincrby {
-        key: String,
-        field: String,
-        increment: i64,
-    }, // hincrby key field increment
-    Hdel {
-        key: String,
-        fields: Vec<String>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SetCommand {
     Sadd(String, Vec<String>), // sadd key member1 member2 ...
     Srem(String, Vec<String>), // srem key member1 member2 ...
@@ -210,7 +200,20 @@ pub fn is_string_command(cmd_name: &str) -> bool {
 pub fn is_hash_command(cmd_name: &str) -> bool {
     matches!(
         cmd_name.to_uppercase().as_str(),
-        "HSET" | "HGET" | "HMGET" | "HGETALL" | "HINCRBY" | "HDEL"
+        "HSET"
+            | "HSETNX"
+            | "HGET"
+            | "HMGET"
+            | "HMSET"
+            | "HGETALL"
+            | "HEXISTS"
+            | "HKEYS"
+            | "HVALS"
+            | "HLEN"
+            | "HSCAN"
+            | "HINCRBY"
+            | "HINCRBYFLOAT"
+            | "HDEL"
     )
 }
 
@@ -263,6 +266,7 @@ impl CommandHandler {
             Command::Generic(generic_cmd) => self.handle_generic_command(generic_cmd),
             Command::String(string_cmd) => self.handle_string_command(string_cmd),
             Command::List(list_cmd) => self.handle_list_commands(list_cmd),
+            Command::Hash(hash_cmd) => self.handle_hash_commands(hash_cmd),
             _ => Err(RedisError::UnsupportedCommand),
         }
     }
@@ -394,6 +398,46 @@ impl CommandHandler {
                 self.blpop(keys.iter().map(|k| k.as_str()).collect(), timeout)
             }
             _ => Err(RedisError::UnsupportedCommand), // other list commands not implemented yet
+        }
+    }
+
+    fn handle_hash_commands(&mut self, cmd: HashCommand) -> Result<BytesFrame, RedisError> {
+        match cmd {
+            HashCommand::HGet(key, field) => self.hget(&key, &field),
+            HashCommand::HSet(key, values) => self.hset(&key, values),
+            HashCommand::HSetNX(key, field, value) => self.hsetnx(&key, &field, &value),
+
+            HashCommand::HMGet(key, fields) => {
+                self.hmget(&key, fields.iter().map(|f| f.as_str()).collect())
+            }
+            HashCommand::HMSet(key, field_values) => self.hmset(&key, field_values),
+
+            HashCommand::HGetAll(key) => self.hgetall(&key),
+            HashCommand::HLen(key) => self.hlen(&key),
+            HashCommand::HKeys(key) => self.hkeys(&key),
+            HashCommand::HVals(key) => self.hvals(&key),
+            HashCommand::HExists(key, field) => self.hexists(&key, &field),
+
+            HashCommand::HScan {
+                key,
+                cursor,
+                pattern,
+                count,
+            } => self.hscan(&key, cursor, pattern.as_deref(), count),
+
+            HashCommand::HIncrBy {
+                key,
+                field,
+                increment,
+            } => self.hincrby(&key, &field, increment),
+
+            HashCommand::HIncrByFloat {
+                key,
+                field,
+                increment,
+            } => self.hincrbyfloat(&key, &field, increment),
+
+            HashCommand::HDel { key, fields } => self.hdel(&key, &fields),
         }
     }
 }

@@ -1,10 +1,10 @@
 use crate::{
     command::{
-        Command, GenericCommand, ListCommand, StringCommand, is_generic_command, is_hash_command,
+        Command, GenericCommand, StringCommand, is_generic_command, is_hash_command,
         is_list_command, is_set_command, is_sorted_set_command, is_string_command,
     },
     errors::RedisError,
-    protocol::list::decode_list_command,
+    protocol::{hash::decode_hash_commands, list::decode_list_command},
     storage::{SetCondition, SetOptions, SetTTL},
 };
 
@@ -21,7 +21,7 @@ pub fn decode_frame(frame: Frame) -> Result<Command, RedisError> {
     match cmd_name.as_str() {
         _ if is_generic_command(cmd_name.as_str()) => decode_generic_command(args.as_slice()),
         _ if is_string_command(cmd_name.as_str()) => decode_string_command(args.as_slice()),
-        _ if is_hash_command(cmd_name.as_str()) => decode_hash_command(args.as_slice()),
+        _ if is_hash_command(cmd_name.as_str()) => decode_hash_commands(args.as_slice()),
         _ if is_list_command(cmd_name.as_str()) => decode_list_command(args.as_slice()),
         _ if is_set_command(cmd_name.as_str()) => decode_set_command(args.as_slice()),
         _ if is_sorted_set_command(cmd_name.as_str()) => decode_sorted_set_command(args.as_slice()),
@@ -391,18 +391,6 @@ fn build_set_command(args: &[String]) -> Result<Command, RedisError> {
     }))
 }
 
-fn decode_hash_command(parts: &[String]) -> Result<Command, RedisError> {
-    let cmd_name = parts[0].to_uppercase();
-    let args = &parts[1..];
-
-    match cmd_name.as_str() {
-        _ => Err(RedisError::ProtocolError(format!(
-            "Unknown hash command: {}",
-            cmd_name
-        ))),
-    }
-}
-
 fn decode_set_command(parts: &[String]) -> Result<Command, RedisError> {
     let cmd_name = parts[0].to_uppercase();
     let args = &parts[1..];
@@ -429,9 +417,9 @@ fn decode_sorted_set_command(parts: &[String]) -> Result<Command, RedisError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::value::{ListInsertPivot, ListMoveDirection};
-
     use super::*;
+    use crate::command::ListCommand;
+    use crate::value::{ListInsertPivot, ListMoveDirection};
 
     #[test]
     fn test_extract_args_from_frame() {
