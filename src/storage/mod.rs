@@ -31,7 +31,7 @@ pub enum SetCondition {
 
 pub trait Storage {
     fn get_type(&self, key: &str) -> Option<String>;
-    fn ttl(&self, key: &str) -> Option<i64>; // return TTL in seconds, -1 if no TTL, -2 if key does not exist
+    fn ttl(&self, key: &str) -> i64; // return TTL in seconds, -1 if no TTL, -2 if key does not exist
     fn expire(&mut self, key: &str, ttl: i64) -> bool; // set TTL in seconds, return true if successful
     fn scan(
         &self,

@@ -16,21 +16,22 @@ use crate::{
 };
 
 pub struct MemStore {
-    // key -> (value, expire_time)
-    pub data: DashMap<String, Value>,
+    pub data: DashMap<String, RedisValue>,
+    pub expire_table: DashMap<String, Instant>,
 }
 
 impl MemStore {
     pub fn new(cap: usize) -> Self {
         Self {
             data: DashMap::with_capacity(cap),
+            expire_table: DashMap::with_capacity(cap),
         }
     }
 }
 
 impl Storage for MemStore {
     fn get_type(&self, key: &str) -> Option<String> {
-        self.data.get(key).map(|v| match &v.value {
+        self.data.get(key).map(|v| match &v.value() {
             RedisValue::String(_) => "string".to_string(),
             RedisValue::List(_) => "list".to_string(),
             RedisValue::Hash(_) => "hash".to_string(),
@@ -41,31 +42,34 @@ impl Storage for MemStore {
     }
 
     /*
-        A positive integer — seconds remaining (e.g. 47)
+    A positive integer — seconds remaining (e.g. 47)
     -1 — the key exists but has no expiry set
     -2 — the key does not exist
-        */
-    fn ttl(&self, key: &str) -> Option<i64> {
-        self.data.get(key).map(|v| {
-            if let Some(expire_time) = v.expire_time {
-                let now = Instant::now();
-                if expire_time > now {
-                    (expire_time - now).as_secs() as i64
-                } else {
-                    -2 // expired
-                }
-            } else {
-                -1 // no TTL
-            }
-        })
+    */
+    fn ttl(&self, key: &str) -> i64 {
+        let value = self.expire_table.get(key);
+        if value.is_none() {
+            return if self.data.contains_key(key) { -1 } else { -2 };
+        }
+
+        let expire_time = *value.unwrap();
+        if expire_time > Instant::now() {
+            let ttl = expire_time.duration_since(Instant::now()).as_secs() as i64;
+            ttl
+        } else {
+            -2 // expired
+        }
     }
 
     fn expire(&mut self, key: &str, ttl: i64) -> bool {
-        if let Some(mut v) = self.data.get_mut(key) {
+        if self.data.contains_key(key) {
             if ttl > 0 {
-                v.expire_time = Some(Instant::now() + Duration::from_secs(ttl as u64));
+                self.expire_table.insert(
+                    key.to_string(),
+                    Instant::now() + Duration::from_secs(ttl as u64),
+                );
             } else {
-                v.expire_time = None; // remove TTL
+                self.expire_table.remove(key);
             }
             true
         } else {
@@ -74,15 +78,27 @@ impl Storage for MemStore {
     }
 
     fn append(&mut self, key: &str, value: &str) -> Option<usize> {
-        if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::String(StringValue::Raw(ref mut existing)) = v.value {
-                existing.push_str(value);
-                Some(existing.len())
-            } else {
-                None
+        if let Some(mut stored) = self.data.get_mut(key) {
+            match &mut *stored {
+                RedisValue::String(StringValue::Raw(existing)) => {
+                    existing.push_str(value);
+                    Some(existing.len())
+                }
+                RedisValue::String(StringValue::Int(existing)) => {
+                    let mut merged = existing.to_string();
+                    merged.push_str(value);
+                    let len = merged.len();
+                    *stored = RedisValue::String(StringValue::Raw(merged));
+                    Some(len)
+                }
+                _ => None,
             }
         } else {
-            None
+            self.data.insert(
+                key.to_string(),
+                RedisValue::String(StringValue::Raw(value.to_string())),
+            );
+            Some(value.len())
         }
     }
 
@@ -103,7 +119,7 @@ impl Storage for MemStore {
                 if let Ok(pat) = glob::Pattern::new(pattern.unwrap_or("*")) {
                     if pat.matches(key) {
                         if let Some(type_filter) = type_filter {
-                            if &entry.value().type_name == type_filter {
+                            if entry.value().type_name() == type_filter {
                                 res.push(key.clone());
                             }
                         } else {
@@ -148,8 +164,17 @@ impl Storage for MemStore {
             return None;
         }
 
+        // check if the key is expired
+        if let Some(expire_time) = self.expire_table.get(key) {
+            if *expire_time < Instant::now() {
+                self.data.remove(key);
+                self.expire_table.remove(key);
+                return None;
+            }
+        }
+
         let data = self.data.get(key).unwrap();
-        if let RedisValue::String(s) = &data.value {
+        if let RedisValue::String(ref s) = *data {
             Some(s.clone())
         } else {
             None
@@ -178,75 +203,63 @@ impl Storage for MemStore {
                     None
                 }
             }
-            SetTTL::KeepTTL => self.data.get(key).and_then(|v| v.expire_time),
+            SetTTL::KeepTTL => self.expire_table.get(key).map(|t| *t),
         });
 
-        let value = Value {
-            value: RedisValue::String(value),
-            type_name: "string".to_string(),
-            expire_time,
-            last_access: Instant::now(),
-        };
+        self.data.insert(key.to_string(), RedisValue::String(value));
 
-        self.data.insert(key.to_string(), value);
+        if expire_time.is_some() {
+            self.expire_table
+                .insert(key.to_string(), expire_time.unwrap());
+        } else {
+            self.expire_table.remove(key);
+        }
+
         true
     }
 
     fn incr(&mut self, key: &str) -> Option<i64> {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::String(StringValue::Int(ref mut existing)) = v.value {
+            if let RedisValue::String(StringValue::Int(ref mut existing)) = *v {
                 *existing += 1;
                 Some(*existing)
             } else {
                 None
             }
         } else {
-            let value = Value {
-                value: RedisValue::String(StringValue::Int(1)),
-                type_name: "string".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
-            };
-            self.data.insert(key.to_string(), value);
+            self.data
+                .insert(key.to_string(), RedisValue::String(StringValue::Int(1)));
             Some(1)
         }
     }
 
     fn incrby(&mut self, key: &str, increment: i64) -> Option<i64> {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::String(StringValue::Int(ref mut existing)) = v.value {
+            if let RedisValue::String(StringValue::Int(ref mut existing)) = *v {
                 *existing += increment;
                 Some(*existing)
             } else {
                 None
             }
         } else {
-            let value = Value {
-                value: RedisValue::String(StringValue::Int(increment)),
-                type_name: "string".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
-            };
-            self.data.insert(key.to_string(), value);
+            self.data.insert(
+                key.to_string(),
+                RedisValue::String(StringValue::Int(increment)),
+            );
             Some(increment)
         }
     }
 
     fn decr(&mut self, key: &str) -> Option<i64> {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::String(StringValue::Int(ref mut existing)) = v.value {
+            if let RedisValue::String(StringValue::Int(ref mut existing)) = *v {
                 *existing -= 1;
                 Some(*existing)
             } else {
                 None
             }
         } else {
-            let value = Value {
-                value: RedisValue::String(StringValue::Int(-1)),
-                type_name: "string".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
-            };
+            let value = RedisValue::String(StringValue::Int(-1));
             self.data.insert(key.to_string(), value);
             Some(-1)
         }
@@ -254,19 +267,14 @@ impl Storage for MemStore {
 
     fn decrby(&mut self, key: &str, decrement: i64) -> Option<i64> {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::String(StringValue::Int(ref mut existing)) = v.value {
+            if let RedisValue::String(StringValue::Int(ref mut existing)) = *v {
                 *existing -= decrement;
                 Some(*existing)
             } else {
                 None
             }
         } else {
-            let value = Value {
-                value: RedisValue::String(StringValue::Int(-decrement)),
-                type_name: "string".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
-            };
+            let value = RedisValue::String(StringValue::Int(-decrement));
             self.data.insert(key.to_string(), value);
             Some(-decrement)
         }
@@ -277,7 +285,7 @@ impl Storage for MemStore {
 
         for key in keys {
             if let Some(v) = self.data.get(key) {
-                if let RedisValue::String(s) = &v.value {
+                if let RedisValue::String(s) = v.value().clone() {
                     values.push(Some(s.clone()));
                 } else {
                     values.push(None);
@@ -292,12 +300,7 @@ impl Storage for MemStore {
 
     fn mset(&mut self, pairs: Vec<(String, String)>) -> bool {
         for (key, value) in pairs {
-            let value = Value {
-                value: RedisValue::String(StringValue::Raw(value)),
-                type_name: "string".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
-            };
+            let value = RedisValue::String(StringValue::Raw(value));
             self.data.insert(key, value);
         }
         true
@@ -305,7 +308,9 @@ impl Storage for MemStore {
 
     fn getrange(&self, key: &str, start: usize, stop: usize) -> Option<String> {
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::String(StringValue::Raw(s)) = &v.value {
+            let value = v.value();
+
+            if let RedisValue::String(StringValue::Raw(s)) = value.clone() {
                 let len = s.len();
                 let start = if start < len { start } else { len };
                 let stop = if stop < len { stop } else { len };
@@ -320,7 +325,7 @@ impl Storage for MemStore {
 
     fn setrange(&mut self, key: &str, offset: usize, value: String) -> Option<usize> {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::String(StringValue::Raw(ref mut existing)) = v.value {
+            if let RedisValue::String(StringValue::Raw(ref mut existing)) = *v {
                 if offset > existing.len() {
                     existing.push_str(&" ".repeat(offset - existing.len()));
                 }
@@ -334,13 +339,10 @@ impl Storage for MemStore {
             new_value.push_str(&value);
             let length = new_value.len();
 
-            let value = Value {
-                value: RedisValue::String(StringValue::Raw(new_value)),
-                type_name: "string".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
-            };
-            self.data.insert(key.to_string(), value);
+            self.data.insert(
+                key.to_string(),
+                RedisValue::String(StringValue::Raw(new_value)),
+            );
             Some(length)
         }
     }
@@ -357,19 +359,15 @@ impl Storage for MemStore {
     fn lpush(&mut self, key: &str, values: Vec<String>) -> Result<usize, RedisError> {
         self.data
             .entry(key.to_string())
-            .or_insert_with(|| Value {
-                value: RedisValue::List(ListValue {
+            .or_insert_with(|| {
+                RedisValue::List(ListValue {
                     items: VecDeque::new(),
-                }),
-                type_name: "list".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
+                })
             })
-            .value
             .left_extend_list(values)?;
 
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::List(l) = &v.value {
+            if let RedisValue::List(l) = &v.value() {
                 return Ok(l.len());
             }
         }
@@ -379,19 +377,15 @@ impl Storage for MemStore {
     fn rpush(&mut self, key: &str, values: Vec<String>) -> Result<usize, RedisError> {
         self.data
             .entry(key.to_string())
-            .or_insert_with(|| Value {
-                value: RedisValue::List(ListValue {
+            .or_insert_with(|| {
+                RedisValue::List(ListValue {
                     items: VecDeque::new(),
-                }),
-                type_name: "list".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
+                })
             })
-            .value
             .extend_list(values)?;
 
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::List(l) = &v.value {
+            if let RedisValue::List(l) = &v.value() {
                 return Ok(l.len());
             }
         }
@@ -399,22 +393,23 @@ impl Storage for MemStore {
     }
 
     fn lpop(&mut self, key: &str, count: usize) -> Result<Option<Vec<String>>, RedisError> {
-        let poped_values = if let Some(mut v) = self.data.get_mut(key) {
-            v.value.pop_list(count, true)?
-        } else {
-            vec![]
-        };
-        Ok(Some(poped_values))
+        if let Some(mut list) = self.data.get_mut(key) {
+            let ll = &mut *list;
+            let values = ll.pop_list(count, true)?;
+            return Ok(Some(values));
+        }
+
+        Ok(None)
     }
 
     fn rpop(&mut self, key: &str, count: usize) -> Result<Option<Vec<String>>, RedisError> {
-        let poped_values = if let Some(mut v) = self.data.get_mut(key) {
-            v.value.pop_list(count, false)?
-        } else {
-            vec![]
-        };
+        if let Some(mut list) = self.data.get_mut(key) {
+            let ll = &mut *list;
+            let values = ll.pop_list(count, false)?;
+            return Ok(Some(values));
+        }
 
-        Ok(Some(poped_values))
+        Ok(None)
     }
 
     /*
@@ -424,7 +419,7 @@ impl Storage for MemStore {
     */
     fn lrange(&self, key: &str, start: i64, stop: i64) -> Result<Option<Vec<String>>, RedisError> {
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::List(l) = &v.value {
+            if let RedisValue::List(l) = &v.value() {
                 let len = l.items.len() as i64;
                 let start = if start >= 0 { start } else { len + start }.max(0);
                 let stop = if stop >= 0 { stop } else { len + stop }.max(0);
@@ -441,7 +436,7 @@ impl Storage for MemStore {
 
     fn llen(&self, key: &str) -> Result<usize, RedisError> {
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::List(l) = &v.value {
+            if let RedisValue::List(l) = &v.value() {
                 return Ok(l.len());
             }
         }
@@ -455,7 +450,7 @@ impl Storage for MemStore {
     */
     fn lrem(&mut self, key: &str, count: i64, value: &str) -> Result<usize, RedisError> {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::List(l) = &mut v.value {
+            if let RedisValue::List(l) = &mut *v {
                 return Ok(l.lrem(count, value));
             }
         }
@@ -463,8 +458,8 @@ impl Storage for MemStore {
     }
 
     fn lindex(&self, key: &str, index: i64) -> Result<Option<String>, RedisError> {
-        if let Some(v) = self.data.get(key) {
-            if let RedisValue::List(l) = &v.value {
+        if let Some(list) = self.data.get(key) {
+            if let RedisValue::List(l) = &list.value() {
                 let len = l.items.len() as i64;
                 let index = if index >= 0 { index } else { len + index };
                 if index >= 0 && index < len {
@@ -476,8 +471,8 @@ impl Storage for MemStore {
     }
 
     fn ltrim(&mut self, key: &str, start: i64, stop: i64) -> Result<bool, RedisError> {
-        if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::List(l) = &mut v.value {
+        if let Some(mut list) = self.data.get_mut(key) {
+            if let RedisValue::List(l) = &mut *list {
                 return l.ltrim(start, stop);
             }
         }
@@ -499,7 +494,7 @@ impl Storage for MemStore {
         LINSERT mylist AFTER  "x" "new"   # insert "new" after "x"
         */
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::List(l) = &mut v.value {
+            if let RedisValue::List(l) = &mut *v {
                 return l.linsert(position, pivot, value);
             }
         }
@@ -508,7 +503,7 @@ impl Storage for MemStore {
 
     fn lset(&mut self, key: &str, index: i64, value: &str) -> Result<(), RedisError> {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::List(l) = &mut v.value {
+            if let RedisValue::List(l) = &mut *v {
                 return l.lset(index, value);
             }
         }
@@ -532,8 +527,8 @@ impl Storage for MemStore {
             return Ok(None);
         }
 
-        if let RedisValue::List(l1) = &mut src_list.unwrap().value {
-            if let RedisValue::List(l2) = &mut dest_list.unwrap().value {
+        if let RedisValue::List(l1) = &mut *src_list.unwrap() {
+            if let RedisValue::List(l2) = &mut *dest_list.unwrap() {
                 return l1.lmove(l2, source_side, dest_side);
             }
         }
@@ -570,17 +565,12 @@ impl Storage for MemStore {
 
     fn hset(&mut self, key: &str, values: Vec<HashEntry>) -> bool {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::Hash(h) = &mut v.value {
+            if let RedisValue::Hash(h) = &mut *v {
                 return h.hset(values);
             }
         } else {
-            let value = Value {
-                value: RedisValue::Hash(HashValue::from(values)),
-                type_name: "hash".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
-            };
-            self.data.insert(key.to_string(), value);
+            self.data
+                .insert(key.to_string(), RedisValue::Hash(HashValue::from(values)));
             return true;
         }
 
@@ -589,21 +579,17 @@ impl Storage for MemStore {
 
     fn hsetnx(&mut self, key: &str, field: &str, value: &str) -> bool {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::Hash(h) = &mut v.value {
+            if let RedisValue::Hash(h) = &mut *v {
                 return h.hsetnx(field, value);
             }
         } else {
-            let value = Value {
-                value: RedisValue::Hash(HashValue::from(vec![(
+            self.data.insert(
+                key.to_string(),
+                RedisValue::Hash(HashValue::from(vec![(
                     field.to_string(),
                     value.to_string(),
                 )])),
-
-                type_name: "hash".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
-            };
-            self.data.insert(key.to_string(), value);
+            );
             return true;
         }
         false
@@ -611,7 +597,7 @@ impl Storage for MemStore {
 
     fn hget(&self, key: &str, field: &str) -> Option<HashEntry> {
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::Hash(h) = &v.value {
+            if let RedisValue::Hash(h) = v.value() {
                 return h.hget(field);
             }
         }
@@ -620,7 +606,7 @@ impl Storage for MemStore {
 
     fn hmget(&self, key: &str, fields: Vec<&str>) -> Vec<HashEntry> {
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::Hash(h) = &v.value {
+            if let RedisValue::Hash(h) = v.value() {
                 return h.hmget(fields);
             }
         }
@@ -629,17 +615,14 @@ impl Storage for MemStore {
 
     fn hmset(&mut self, key: &str, field_values: Vec<HashEntry>) -> bool {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::Hash(h) = &mut v.value {
+            if let RedisValue::Hash(h) = &mut *v {
                 return h.hmset(field_values);
             }
         } else {
-            let value = Value {
-                value: RedisValue::Hash(HashValue::from(field_values)),
-                type_name: "hash".to_string(),
-                expire_time: None,
-                last_access: Instant::now(),
-            };
-            self.data.insert(key.to_string(), value);
+            self.data.insert(
+                key.to_string(),
+                RedisValue::Hash(HashValue::from(field_values)),
+            );
             return true;
         }
         false
@@ -647,7 +630,7 @@ impl Storage for MemStore {
 
     fn hgetall(&self, key: &str) -> Option<Vec<HashEntry>> {
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::Hash(h) = &v.value {
+            if let RedisValue::Hash(h) = v.value() {
                 return Some(h.hgetall());
             }
         }
@@ -656,7 +639,7 @@ impl Storage for MemStore {
 
     fn hkeys(&self, key: &str) -> Option<Vec<String>> {
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::Hash(h) = &v.value {
+            if let RedisValue::Hash(h) = v.value() {
                 return Some(h.hkeys());
             }
         }
@@ -665,7 +648,7 @@ impl Storage for MemStore {
 
     fn hvals(&self, key: &str) -> Option<Vec<String>> {
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::Hash(h) = &v.value {
+            if let RedisValue::Hash(h) = v.value() {
                 return Some(h.hvals());
             }
         }
@@ -674,7 +657,7 @@ impl Storage for MemStore {
 
     fn hlen(&self, key: &str) -> Option<usize> {
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::Hash(h) = &v.value {
+            if let RedisValue::Hash(h) = v.value() {
                 return Some(h.len());
             }
         }
@@ -683,7 +666,7 @@ impl Storage for MemStore {
 
     fn hexists(&self, key: &str, field: &str) -> bool {
         if let Some(v) = self.data.get(key) {
-            if let RedisValue::Hash(h) = &v.value {
+            if let RedisValue::Hash(h) = v.value() {
                 return h.hexists(field);
             }
         }
@@ -702,7 +685,7 @@ impl Storage for MemStore {
 
     fn hincrby(&mut self, key: &str, field: &str, increment: i64) -> Option<i64> {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::Hash(h) = &mut v.value {
+            if let RedisValue::Hash(h) = &mut *v {
                 return h.hincrby(field, increment);
             }
         }
@@ -716,7 +699,7 @@ impl Storage for MemStore {
         increment: ordered_float::OrderedFloat<f64>,
     ) -> Option<f64> {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::Hash(h) = &mut v.value {
+            if let RedisValue::Hash(h) = &mut *v {
                 return h.hincrbyfloat(field, increment);
             }
         }
@@ -725,7 +708,7 @@ impl Storage for MemStore {
 
     fn hdel(&mut self, key: &str, fields: &[String]) -> usize {
         if let Some(mut v) = self.data.get_mut(key) {
-            if let RedisValue::Hash(h) = &mut v.value {
+            if let RedisValue::Hash(h) = &mut *v {
                 return h.hdel(fields);
             }
         }

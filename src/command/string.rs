@@ -107,6 +107,11 @@ mod tests {
             handler.get("key1"),
             Some(StringValue::Raw("valueXY".to_string()))
         );
+        assert_eq!(handler.append("new_key", "hello"), Some(5));
+        assert_eq!(
+            handler.get("new_key"),
+            Some(StringValue::Raw("hello".to_string()))
+        );
         assert_eq!(handler.strlen("key1"), Some(7));
     }
 }

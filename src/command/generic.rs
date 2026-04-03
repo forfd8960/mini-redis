@@ -45,10 +45,7 @@ impl GenericHandler for CommandHandler {
     }
 
     fn ttl(&self, key: &str) -> Result<BytesFrame, RedisError> {
-        match self.mem_storage.ttl(key) {
-            Some(ttl) => Ok(encode_integer(ttl)),
-            None => Ok(encode_integer(-2)), // key does not exist
-        }
+        Ok(encode_integer(self.mem_storage.ttl(key)))
     }
 
     fn expire(&mut self, key: &str, ttl: u64) -> Result<BytesFrame, RedisError> {
