@@ -1,6 +1,4 @@
-use crate::value::{
-    RedisValue, SetValue, SortedSetValue, StringValue, hash::HashValue, list::ListValue,
-};
+use crate::value::{StringValue, list::ListValue, set::SetValue, sorted_set::SortedSetValue};
 use redis_protocol::resp2::types::BytesFrame;
 use tokio_util::bytes::Bytes;
 
@@ -53,7 +51,7 @@ pub fn encode_set(set_v: SetValue) -> BytesFrame {
         set_v
             .items
             .into_iter()
-            .map(|(key, _)| BytesFrame::BulkString(key.into()))
+            .map(|key| BytesFrame::BulkString(key.into()))
             .collect(),
     )
 }

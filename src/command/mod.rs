@@ -1,10 +1,9 @@
-use std::hash::Hash;
-
 use crate::{
     command::{
         generic::GenericHandler,
         hash::{HashCommand, HashHandler},
         list::ListHandler,
+        set::SetCommand,
         string::StringHandler,
     },
     errors::RedisError,
@@ -154,15 +153,6 @@ pub enum ListCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SetCommand {
-    Sadd(String, Vec<String>), // sadd key member1 member2 ...
-    Srem(String, Vec<String>), // srem key member1 member2 ...
-    Smembers(String),          // smembers key
-    Sismember(String, String), // sismember key member
-    Scard(String),             // scard key
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SortedSetCommand {
     Zadd(String, Vec<(String, OrderedFloat<f64>)>), // zadd key score1 member1 score2 member2 ...
     Zrem(String, Vec<String>),                      // zrem key member1 member2 ...
@@ -241,7 +231,23 @@ pub fn is_list_command(cmd_name: &str) -> bool {
 pub fn is_set_command(cmd_name: &str) -> bool {
     matches!(
         cmd_name.to_uppercase().as_str(),
-        "SADD" | "SREM" | "SMEMBERS" | "SISMEMBER" | "SCARD"
+        "SADD"
+            | "SREM"
+            | "SPOP"
+            | "SMEMBERS"
+            | "SISMEMBER"
+            | "SMISMEMBER"
+            | "SRANDMEMBER"
+            | "SCARD"
+            | "SUNION"
+            | "SUNIONSTORE"
+            | "SINTER"
+            | "SINTERSTORE"
+            | "SINTERCARD"
+            | "SDIFF"
+            | "SDIFFSTORE"
+            | "SMOVE"
+            | "SSCAN"
     )
 }
 

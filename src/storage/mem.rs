@@ -27,6 +27,20 @@ impl MemStore {
             expire_table: DashMap::with_capacity(cap),
         }
     }
+
+    pub fn all_set_members(&self, keys: Vec<&str>) -> Vec<Vec<String>> {
+        keys.iter()
+            .filter_map(|key| {
+                self.data.get(*key).and_then(|v| {
+                    if let RedisValue::Set(set) = &*v {
+                        Some(set.items.iter().cloned().collect::<Vec<String>>())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect::<Vec<Vec<String>>>()
+    }
 }
 
 impl Storage for MemStore {

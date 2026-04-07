@@ -1,15 +1,14 @@
-use std::{collections::HashMap, time::Instant};
-
-use ordered_float::OrderedFloat;
-use skiplist::SkipList;
+use std::time::Instant;
 
 use crate::{
     errors::RedisError,
-    value::{hash::HashValue, list::ListValue},
+    value::{hash::HashValue, list::ListValue, set::SetValue, sorted_set::SortedSetValue},
 };
 
 pub mod hash;
 pub mod list;
+pub mod set;
+pub mod sorted_set;
 
 pub type Entry = Vec<u8>;
 pub type HashEntry = (String, String);
@@ -41,17 +40,6 @@ pub enum RedisValue {
 pub enum StringValue {
     Int(i64),
     Raw(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SetValue {
-    pub items: HashMap<String, ()>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SortedSetValue {
-    pub members: HashMap<String, OrderedFloat<f64>>, // member -> score
-    pub sorted_members: SkipList<(OrderedFloat<f64>, String)>, // sorted by score, then by member
 }
 
 impl RedisValue {
