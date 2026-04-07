@@ -10,8 +10,8 @@ use crate::{
     errors::RedisError,
     storage::{SetOptions, SetTTL, Storage},
     value::{
-        HashEntry, ListInsertPivot, ListMoveDirection, RedisValue, StringValue, Value,
-        hash::HashValue, list::ListValue,
+        HashEntry, ListInsertPivot, ListMoveDirection, RedisValue, StringValue, hash::HashValue,
+        list::ListValue,
     },
 };
 

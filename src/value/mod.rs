@@ -26,14 +26,6 @@ pub enum ListMoveDirection {
     Right,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Value {
-    pub value: RedisValue,
-    pub type_name: String, // "string", "list", "hash", "set", "zset"
-    pub expire_time: Option<Instant>,
-    pub last_access: Instant, // for LRU eviction
-}
-
 // redis storage values
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RedisValue {
