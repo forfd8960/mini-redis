@@ -3,7 +3,7 @@ use crate::{
         generic::GenericHandler,
         hash::{HashCommand, HashHandler},
         list::ListHandler,
-        set::SetCommand,
+        set::{SetCommand, SetHandler},
         string::StringHandler,
     },
     errors::RedisError,
@@ -21,7 +21,7 @@ pub mod hash; // hash commands like HSET, HGET, HMGET, HGETALL, etc.
 pub mod list; // list commands like LPUSH, RPUSH, LPOP, RPOP, LRANGE, etc.
 pub mod set; // set commands like SADD, SREM, SMEMBERS, etc.
 pub mod sorted_set; // sorted set commands like ZADD, ZRANGE, ZSCORE, etc.
-pub mod string; // string commands like GET, SET, INCR, DECR, etc. 
+pub mod string; // string commands like GET, SET, INCR, DECR, etc.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -273,6 +273,7 @@ impl CommandHandler {
             Command::String(string_cmd) => self.handle_string_command(string_cmd),
             Command::List(list_cmd) => self.handle_list_commands(list_cmd),
             Command::Hash(hash_cmd) => self.handle_hash_commands(hash_cmd),
+            Command::Set(set_cmd) => self.handle_set_commands(set_cmd),
             _ => Err(RedisError::UnsupportedCommand),
         }
     }
@@ -444,6 +445,55 @@ impl CommandHandler {
             } => self.hincrbyfloat(&key, &field, increment),
 
             HashCommand::HDel { key, fields } => self.hdel(&key, &fields),
+        }
+    }
+
+    fn handle_set_commands(&mut self, cmd: SetCommand) -> Result<BytesFrame, RedisError> {
+        match cmd {
+            SetCommand::SAdd(key, members) => self.sadd(
+                key.as_str(),
+                members.iter().map(|v| v.as_str()).collect::<Vec<&str>>(),
+            ),
+            SetCommand::SRem(key, members) => self.srem(
+                key.as_str(),
+                members.iter().map(|v| v.as_str()).collect::<Vec<&str>>(),
+            ),
+            SetCommand::SCard(key) => self.scard(&key),
+            SetCommand::SMembers(key) => self.smembers(&key),
+            SetCommand::SIsMember(key, member) => self.sismember(&key, &member),
+            SetCommand::SMIsMember(key, members) => self.smismember(
+                &key,
+                members.iter().map(|v| v.as_str()).collect::<Vec<&str>>(),
+            ),
+            SetCommand::SPop(key, count) => self.spop(&key, count),
+            SetCommand::SRandMember(key, count) => self.srandmember(&key, count),
+            SetCommand::SMove(src, dst, member) => self.smove(&src, &dst, &member),
+            SetCommand::SUnion(keys) => {
+                self.sunion(keys.iter().map(|v| v.as_str()).collect::<Vec<&str>>())
+            }
+            SetCommand::SInter(keys) => {
+                self.sinter(keys.iter().map(|v| v.as_str()).collect::<Vec<&str>>())
+            }
+            SetCommand::SDiff(keys) => {
+                self.sdiff(keys.iter().map(|v| v.as_str()).collect::<Vec<&str>>())
+            }
+            SetCommand::SUnionStore(dst, keys) => {
+                self.sunionstore(&dst, keys.iter().map(|v| v.as_str()).collect::<Vec<&str>>())
+            }
+            SetCommand::SInterStore(dst, keys) => {
+                self.sinterstore(&dst, keys.iter().map(|v| v.as_str()).collect::<Vec<&str>>())
+            }
+            SetCommand::SDiffStore(dst, keys) => {
+                self.sdiffstore(&dst, keys.iter().map(|v| v.as_str()).collect::<Vec<&str>>())
+            }
+            SetCommand::SInterCard(numkeys, keys, limit) => self.sintercard(
+                numkeys,
+                keys.iter().map(|v| v.as_str()).collect::<Vec<&str>>(),
+                limit,
+            ),
+            SetCommand::SScan(key, cursor, pattern) => self.sscan(&key, cursor, pattern),
+
+            _ => Err(RedisError::UnsupportedCommand),
         }
     }
 }

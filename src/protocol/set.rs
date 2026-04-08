@@ -24,13 +24,20 @@ pub fn decode_set_command(parts: &[String]) -> Result<Command, RedisError> {
             }
         }
         "SPOP" => {
-            if args.len() != 1 {
+            if args.len() < 1 || args.len() > 2 {
                 return Err(RedisError::ProtocolError(format!(
-                    "SPOP requires exactly 1 argument",
+                    "SPOP requires 1 argument or 1 argument with count",
                 )));
             }
             let key = args[0].clone();
-            Ok(Command::Set(SetCommand::SPop(key)))
+            let count = if args.len() == 2 {
+                Some(args[1].parse::<usize>().map_err(|e| {
+                    RedisError::ProtocolError(format!("Invalid count value for SPOP: {}", e))
+                })?)
+            } else {
+                None
+            };
+            Ok(Command::Set(SetCommand::SPop(key, count)))
         }
         "SRANDMEMBER" => {
             if args.len() < 1 || args.len() > 2 {
@@ -216,7 +223,7 @@ mod tests {
         let cmds = vec![
             vec!["SADD".to_string(), "myset".to_string(), "a".to_string()],
             vec!["SREM".to_string(), "myset".to_string(), "a".to_string()],
-            vec!["SPOP".to_string(), "myset".to_string()],
+            vec!["SPOP".to_string(), "myset".to_string(), "2".to_string()],
             vec!["SRANDMEMBER".to_string(), "myset".to_string()],
             vec![
                 "SRANDMEMBER".to_string(),
@@ -287,7 +294,7 @@ mod tests {
         let expected_cmds = vec![
             Command::Set(SetCommand::SAdd("myset".to_string(), vec!["a".to_string()])),
             Command::Set(SetCommand::SRem("myset".to_string(), vec!["a".to_string()])),
-            Command::Set(SetCommand::SPop("myset".to_string())),
+            Command::Set(SetCommand::SPop("myset".to_string(), Some(2))),
             Command::Set(SetCommand::SRandMember("myset".to_string(), None)),
             Command::Set(SetCommand::SRandMember("myset".to_string(), Some(2))),
             Command::Set(SetCommand::SMembers("myset".to_string())),

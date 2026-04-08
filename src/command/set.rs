@@ -31,7 +31,7 @@ pub enum SetCommand {
     SCard(String),                      // count members
     SIsMember(String, String),          // sismember key member
     SMIsMember(String, Vec<String>),    // smismember key member1 member2 ...
-    SPop(String),                       // spop key
+    SPop(String, Option<usize>),        // spop key
     SRandMember(String, Option<usize>), // srandmember key [count]
     SMove(String, String, String),      // smove src dst member
     SUnion(Vec<String>),                // sunion s1 s2 ...
