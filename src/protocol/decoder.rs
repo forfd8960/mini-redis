@@ -4,7 +4,7 @@ use crate::{
         is_list_command, is_set_command, is_sorted_set_command, is_string_command,
     },
     errors::RedisError,
-    protocol::{hash::decode_hash_commands, list::decode_list_command},
+    protocol::{hash::decode_hash_commands, list::decode_list_command, set::decode_set_command},
     storage::{SetCondition, SetOptions, SetTTL},
 };
 
@@ -43,11 +43,6 @@ fn extract_args_from_frame(frame: Frame) -> Result<Vec<String>, RedisError> {
                 match cmd {
                     Frame::BulkString(bs) => {
                         let arg = String::from_utf8(bs)
-                            .map_err(|e| RedisError::ProtocolError(e.to_string()))?;
-                        args.push(arg);
-                    }
-                    Frame::SimpleString(ss) => {
-                        let arg = String::from_utf8(ss)
                             .map_err(|e| RedisError::ProtocolError(e.to_string()))?;
                         args.push(arg);
                     }
@@ -389,18 +384,6 @@ fn build_set_command(args: &[String]) -> Result<Command, RedisError> {
         value,
         options,
     }))
-}
-
-fn decode_set_command(parts: &[String]) -> Result<Command, RedisError> {
-    let cmd_name = parts[0].to_uppercase();
-    let args = &parts[1..];
-
-    match cmd_name.as_str() {
-        _ => Err(RedisError::ProtocolError(format!(
-            "Unknown set command: {}",
-            cmd_name
-        ))),
-    }
 }
 
 fn decode_sorted_set_command(parts: &[String]) -> Result<Command, RedisError> {

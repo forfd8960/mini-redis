@@ -31,6 +31,7 @@ pub trait SetStore {
     fn smembers(&self, key: &str) -> Option<Vec<String>>;
     fn scard(&self, key: &str) -> usize;
     fn sismember(&self, key: &str, member: &str) -> bool;
+    fn smismember(&self, key: &str, members: Vec<&str>) -> Option<Vec<i64>>;
     fn spop(&mut self, key: &str, count: Option<usize>) -> Option<Vec<String>>;
     fn srandmember(&self, key: &str, count: Option<usize>) -> Option<Vec<String>>;
     fn smove(&mut self, src: &str, dst: &str, member: &str) -> bool;
@@ -101,6 +102,15 @@ impl SetStore for MemStore {
             }
         }
         false
+    }
+
+    fn smismember(&self, key: &str, members: Vec<&str>) -> Option<Vec<i64>> {
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::Set(set) = &*v {
+                return Some(set.sm_ismember(members));
+            }
+        }
+        None
     }
 
     fn spop(&mut self, key: &str, count: Option<usize>) -> Option<Vec<String>> {

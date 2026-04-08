@@ -35,6 +35,13 @@ impl SetValue {
         self.items.contains(member)
     }
 
+    pub fn sm_ismember(&self, members: Vec<&str>) -> Vec<i64> {
+        members
+            .iter()
+            .map(|&m| if self.items.contains(m) { 1 } else { 0 })
+            .collect()
+    }
+
     pub fn sadd(&mut self, members: Vec<&str>) -> usize {
         let mut added = 0;
         for member in members {
