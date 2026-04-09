@@ -4,7 +4,10 @@ use crate::{
         generic::GenericCommand,
         is_generic_command, is_hash_command, is_list_command, is_set_command,
         is_sorted_set_command, is_string_command,
-        sorted_set::{SortedSetCommand, ZAddComparison, ZAddCondition, ZAddOptions},
+        sorted_set::{
+            LexBound, Limit, RangeBy, ScoreBound, SortedSetCommand, ZAddComparison, ZAddCondition,
+            ZAddOptions,
+        },
         string::StringCommand,
     },
     errors::RedisError,
@@ -397,6 +400,9 @@ fn decode_sorted_set_command(parts: &[String]) -> Result<Command, RedisError> {
 
     match cmd_name.as_str() {
         "ZADD" => parse_zadd(args),
+        "ZREM" => parse_zrem(args),
+        "ZINCRBY" => parse_zincrby(args),
+        "ZRANGE" => parse_zrange(args),
         _ => Err(RedisError::ProtocolError(format!(
             "Unknown sorted set command: {}",
             cmd_name
@@ -453,6 +459,182 @@ fn parse_zadd(args: &[String]) -> Result<Command, RedisError> {
         members: score_member_pairs,
         options,
     }))
+}
+
+fn parse_zrem(args: &[String]) -> Result<Command, RedisError> {
+    let key = args[0].clone();
+    let members = args[1..].to_vec();
+    Ok(Command::SortedSet(SortedSetCommand::ZRem { key, members }))
+}
+
+fn parse_zincrby(args: &[String]) -> Result<Command, RedisError> {
+    let key = args[0].clone();
+    let increment = args[1].parse::<f64>().map_err(|e| {
+        RedisError::ProtocolError(format!("Invalid increment value for ZINCRBY: {}", e))
+    })?;
+
+    let member = args[2].clone();
+    Ok(Command::SortedSet(SortedSetCommand::ZIncrBy {
+        key,
+        increment: OrderedFloat(increment),
+        member,
+    }))
+}
+
+/*
+ZRange {
+        key: String,
+        range: RangeBy,
+        rev: bool,
+        limit: Option<Limit>,
+        with_scores: bool,
+    },
+
+# Rank 0 = lowest score, -1 = highest score
+ZRANGE leaderboard 0 -1                 # all members, low → high
+ZRANGE leaderboard 0 -1 REV            # all members, high → low
+ZRANGE leaderboard 0 -1 WITHSCORES     # include scores in output
+ZRANGE leaderboard 0 2                  # top 3 lowest
+ZRANGE leaderboard 0 2 REV             # top 3 highest
+
+ZRANGE leaderboard 1000 2000 BYSCORE              # score between 1000–2000
+ZRANGE leaderboard 2000 1000 BYSCORE REV          # reversed
+ZRANGE leaderboard 1000 2000 BYSCORE LIMIT 0 10   # paginate: skip 0, take 10
+
+# Exclusive bounds with ( prefix
+ZRANGE leaderboard (1000 2000 BYSCORE    # score > 1000 and <= 2000
+ZRANGE leaderboard -inf +inf BYSCORE     # all members by score
+
+ZRANGE myset "[a" "[m" BYLEX             # members a–m alphabetically
+ZRANGE myset "-"  "+"  BYLEX             # all members alphabetically
+ZRANGE myset "[a" "[m" BYLEX REV         # reversed
+
+# - means negative infinity (before all), + means positive infinity (after all)
+# [ means inclusive,  ( means exclusive
+*/
+fn parse_zrange(args: &[String]) -> Result<Command, RedisError> {
+    let key = args[0].clone();
+    let mut args_pos = 0;
+    let range_type = if args.len() > 3 && args[3].to_uppercase() == "BYSCORE" {
+        args_pos = 4; // skip key, min, max, BYSCORE
+
+        RangeBy::Score {
+            min: parse_scorebound(&args[1])?,
+            max: parse_scorebound(&args[2])?,
+        }
+    } else if args.len() > 3 && args[3].to_uppercase() == "BYLEX" {
+        let (min, max) = parse_lex_range(&args[1], &args[2]);
+
+        args_pos = 4; // skip key, min, max, BYLEX
+        RangeBy::Lex { min, max }
+    } else {
+        let start = args[1].parse::<i64>().map_err(|e| {
+            RedisError::ProtocolError(format!("Invalid start index for ZRANGE: {}", e))
+        })?;
+        let stop = args[2].parse::<i64>().map_err(|e| {
+            RedisError::ProtocolError(format!("Invalid end index for ZRANGE: {}", e))
+        })?;
+        args_pos = 3; // skip key, start, stop
+        RangeBy::Rank { start, stop }
+    };
+
+    let mut rev = false;
+    let mut with_scores = false;
+    let mut limit = None;
+
+    let mut i = args_pos;
+    while i < args.len() {
+        match args[i].to_uppercase().as_str() {
+            "REV" => {
+                rev = true;
+                i += 1;
+            }
+            "WITHSCORES" => {
+                with_scores = true;
+                i += 1;
+            }
+            "LIMIT" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(RedisError::ProtocolError(
+                        "Missing offset value for LIMIT option".to_string(),
+                    ));
+                }
+                let offset = args[i].parse::<u64>().map_err(|e| {
+                    RedisError::ProtocolError(format!("Invalid offset value for LIMIT: {}", e))
+                })?;
+
+                i += 1;
+                if i >= args.len() {
+                    return Err(RedisError::ProtocolError(
+                        "Missing count value for LIMIT option".to_string(),
+                    ));
+                }
+
+                let count = args[i].parse::<u64>().map_err(|e| {
+                    RedisError::ProtocolError(format!("Invalid count value for LIMIT: {}", e))
+                })?;
+
+                limit = Some(Limit { offset, count });
+                i += 1;
+            }
+            _ => {
+                return Err(RedisError::ProtocolError(format!(
+                    "Unknown option for ZRANGE command: {}",
+                    args[i]
+                )));
+            }
+        }
+    }
+
+    Ok(Command::SortedSet(SortedSetCommand::ZRange {
+        key,
+        range: range_type,
+        rev,
+        with_scores,
+        limit,
+    }))
+}
+
+fn parse_lex_range(min: &str, max: &str) -> (LexBound, LexBound) {
+    let parse_bound = |s: &str| {
+        if s.starts_with('(') {
+            LexBound::Exclusive(s[1..].to_string())
+        } else if s.starts_with('[') {
+            LexBound::Inclusive(s[1..].to_string())
+        } else if s == "-" {
+            LexBound::NegInf
+        } else if s == "+" {
+            LexBound::PosInf
+        } else {
+            LexBound::Inclusive(s.to_string())
+        }
+    };
+
+    (parse_bound(min), parse_bound(max))
+}
+
+fn parse_scorebound(s: &str) -> Result<ScoreBound, RedisError> {
+    if s == "-inf" {
+        Ok(ScoreBound::NegInf)
+    } else if s == "+inf" {
+        Ok(ScoreBound::PosInf)
+    } else if s.starts_with("(") {
+        let value = s[1..].parse::<f64>().map_err(|e| {
+            RedisError::ProtocolError(format!("Invalid exclusive score value: {}", e))
+        })?;
+        Ok(ScoreBound::Exclusive(OrderedFloat(value)))
+    } else if s.starts_with("[") {
+        let value = s[1..].parse::<f64>().map_err(|e| {
+            RedisError::ProtocolError(format!("Invalid inclusive score value: {}", e))
+        })?;
+        Ok(ScoreBound::Inclusive(OrderedFloat(value)))
+    } else {
+        let value = s
+            .parse::<f64>()
+            .map_err(|e| RedisError::ProtocolError(format!("Invalid score value: {}", e)))?;
+        Ok(ScoreBound::Inclusive(OrderedFloat(value)))
+    }
 }
 
 #[cfg(test)]
@@ -727,6 +909,176 @@ mod tests {
         assert_eq!(
             cmd,
             Command::List(ListCommand::LTrim("mylist".to_string(), 1, 3))
+        );
+    }
+
+    #[test]
+    fn test_parse_zrange() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"ZRANGE".to_vec()),
+            Frame::BulkString(b"leaderboard".to_vec()),
+            Frame::BulkString(b"0".to_vec()),
+            Frame::BulkString(b"-1".to_vec()),
+            Frame::BulkString(b"REV".to_vec()),
+            Frame::BulkString(b"WITHSCORES".to_vec()),
+        ]);
+
+        let cmd = decode_frame(frame);
+        println!("Decoded command: {:?}", cmd);
+
+        assert!(cmd.is_ok());
+        let cmd = cmd.unwrap();
+
+        assert_eq!(
+            cmd,
+            Command::SortedSet(SortedSetCommand::ZRange {
+                key: "leaderboard".to_string(),
+                range: RangeBy::Rank { start: 0, stop: -1 },
+                rev: true,
+                with_scores: true,
+                limit: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_zrange_by_score_with_limit() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"ZRANGE".to_vec()),
+            Frame::BulkString(b"leaderboard".to_vec()),
+            Frame::BulkString(b"1000".to_vec()),
+            Frame::BulkString(b"2000".to_vec()),
+            Frame::BulkString(b"BYSCORE".to_vec()),
+            Frame::BulkString(b"LIMIT".to_vec()),
+            Frame::BulkString(b"0".to_vec()),
+            Frame::BulkString(b"10".to_vec()),
+        ]);
+
+        let cmd = decode_frame(frame);
+        println!("Decoded command: {:?}", cmd);
+
+        assert!(cmd.is_ok());
+        let cmd = cmd.unwrap();
+
+        assert_eq!(
+            cmd,
+            Command::SortedSet(SortedSetCommand::ZRange {
+                key: "leaderboard".to_string(),
+                range: RangeBy::Score {
+                    min: ScoreBound::Inclusive(OrderedFloat(1000.0)),
+                    max: ScoreBound::Inclusive(OrderedFloat(2000.0)),
+                },
+                rev: false,
+                with_scores: false,
+                limit: Some(Limit {
+                    offset: 0,
+                    count: 10
+                }),
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_zrange_by_lex_with_limit() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"ZRANGE".to_vec()),
+            Frame::BulkString(b"leaderboard".to_vec()),
+            Frame::BulkString(b"(a".to_vec()),
+            Frame::BulkString(b"[z".to_vec()),
+            Frame::BulkString(b"BYLEX".to_vec()),
+            Frame::BulkString(b"REV".to_vec()),
+            Frame::BulkString(b"LIMIT".to_vec()),
+            Frame::BulkString(b"0".to_vec()),
+            Frame::BulkString(b"10".to_vec()),
+        ]);
+
+        let cmd = decode_frame(frame);
+        println!("Decoded command: {:?}", cmd);
+
+        assert!(cmd.is_ok());
+        let cmd = cmd.unwrap();
+
+        assert_eq!(
+            cmd,
+            Command::SortedSet(SortedSetCommand::ZRange {
+                key: "leaderboard".to_string(),
+                range: RangeBy::Lex {
+                    min: LexBound::Exclusive("a".to_string()),
+                    max: LexBound::Inclusive("z".to_string()),
+                },
+                rev: true,
+                with_scores: false,
+                limit: Some(Limit {
+                    offset: 0,
+                    count: 10
+                }),
+            })
+        );
+    }
+
+    // ZRANGE leaderboard -inf +inf BYSCORE
+    #[test]
+    fn parse_zrange_by_score_inf() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"ZRANGE".to_vec()),
+            Frame::BulkString(b"leaderboard".to_vec()),
+            Frame::BulkString(b"-inf".to_vec()),
+            Frame::BulkString(b"+inf".to_vec()),
+            Frame::BulkString(b"BYSCORE".to_vec()),
+        ]);
+
+        let cmd = decode_frame(frame);
+        println!("Decoded command: {:?}", cmd);
+
+        assert!(cmd.is_ok());
+        let cmd = cmd.unwrap();
+
+        assert_eq!(
+            cmd,
+            Command::SortedSet(SortedSetCommand::ZRange {
+                key: "leaderboard".to_string(),
+                range: RangeBy::Score {
+                    min: ScoreBound::NegInf,
+                    max: ScoreBound::PosInf,
+                },
+                rev: false,
+                with_scores: false,
+                limit: None,
+            })
+        );
+    }
+
+    // ZRANGE myset "-"  "+"  BYLEX
+    #[test]
+    fn parse_zrange_by_lex_inf() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"ZRANGE".to_vec()),
+            Frame::BulkString(b"myset".to_vec()),
+            Frame::BulkString(b"-".to_vec()),
+            Frame::BulkString(b"+".to_vec()),
+            Frame::BulkString(b"BYLEX".to_vec()),
+            Frame::BulkString(b"REV".to_vec()),
+            Frame::BulkString(b"WITHSCORES".to_vec()),
+        ]);
+
+        let cmd = decode_frame(frame);
+        println!("Decoded command: {:?}", cmd);
+
+        assert!(cmd.is_ok());
+        let cmd = cmd.unwrap();
+
+        assert_eq!(
+            cmd,
+            Command::SortedSet(SortedSetCommand::ZRange {
+                key: "myset".to_string(),
+                range: RangeBy::Lex {
+                    min: LexBound::NegInf,
+                    max: LexBound::PosInf,
+                },
+                rev: true,
+                with_scores: true,
+                limit: None,
+            })
         );
     }
 }
