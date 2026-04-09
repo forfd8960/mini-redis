@@ -1,13 +1,18 @@
 use crate::{
     command::{
-        Command, GenericCommand, StringCommand, is_generic_command, is_hash_command,
-        is_list_command, is_set_command, is_sorted_set_command, is_string_command,
+        Command,
+        generic::GenericCommand,
+        is_generic_command, is_hash_command, is_list_command, is_set_command,
+        is_sorted_set_command, is_string_command,
+        sorted_set::{SortedSetCommand, ZAddComparison, ZAddCondition, ZAddOptions},
+        string::StringCommand,
     },
     errors::RedisError,
     protocol::{hash::decode_hash_commands, list::decode_list_command, set::decode_set_command},
     storage::{SetCondition, SetOptions, SetTTL},
 };
 
+use ordered_float::OrderedFloat;
 use redis_protocol::resp2::types::OwnedFrame as Frame;
 
 // decode commands from the Redis protocol
@@ -391,6 +396,7 @@ fn decode_sorted_set_command(parts: &[String]) -> Result<Command, RedisError> {
     let args = &parts[1..];
 
     match cmd_name.as_str() {
+        "ZADD" => parse_zadd(args),
         _ => Err(RedisError::ProtocolError(format!(
             "Unknown sorted set command: {}",
             cmd_name
@@ -398,10 +404,61 @@ fn decode_sorted_set_command(parts: &[String]) -> Result<Command, RedisError> {
     }
 }
 
+fn parse_zadd(args: &[String]) -> Result<Command, RedisError> {
+    let key = args[0].clone();
+    let mut score_member_pairs: Vec<(OrderedFloat<f64>, String)> = Vec::new();
+    let mut options = ZAddOptions::default();
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].to_uppercase().as_str() {
+            "NX" => {
+                options.condition = ZAddCondition::OnlyNew;
+            }
+
+            "XX" => {
+                options.condition = ZAddCondition::OnlyExisting;
+            }
+
+            "GT" => {
+                options.comparison = ZAddComparison::GreaterThan;
+            }
+            "LT" => {
+                options.comparison = ZAddComparison::LessThan;
+            }
+
+            "CH" => options.changed = true,
+            "INCR" => options.incr = true,
+
+            _ => {
+                if i + 1 >= args.len() {
+                    return Err(RedisError::ProtocolError(
+                        "Missing member for score in ZADD command".to_string(),
+                    ));
+                }
+
+                let score = args[i].parse::<f64>().map_err(|e| {
+                    RedisError::ProtocolError(format!("Invalid score value for ZADD: {}", e))
+                })?;
+
+                let member = args[i + 1].clone();
+                score_member_pairs.push((OrderedFloat(score), member));
+                i += 1; // skip the member argument
+            }
+        }
+        i += 1;
+    }
+    Ok(Command::SortedSet(SortedSetCommand::ZAdd {
+        key,
+        members: score_member_pairs,
+        options,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::ListCommand;
+    use crate::command::list::ListCommand;
     use crate::value::{ListInsertPivot, ListMoveDirection};
 
     #[test]

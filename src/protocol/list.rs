@@ -1,5 +1,5 @@
 use crate::{
-    command::{Command, ListCommand},
+    command::{Command, list::ListCommand},
     errors::RedisError,
     value::{ListInsertPivot, ListMoveDirection},
 };

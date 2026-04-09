@@ -4,6 +4,20 @@ use crate::protocol::encoder::{encode_integer, encode_nil, encode_simple_strings
 use crate::storage::Storage;
 use crate::{command::CommandHandler, errors::RedisError, protocol::encoder::encode_simple_string};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GenericCommand {
+    Ping(Option<String>), // ping [message]
+    Echo(String),
+    Exists(Vec<String>), // exists key1 key2 ...
+    TTL(String),
+    Expire(String, u64),
+    // scan cursor [MATCH pattern] [COUNT count] [TYPE type]
+    Scan(i64, Option<String>, Option<usize>, Option<String>),
+    Keys(String), // keys pattern
+    Type(String), // type key
+    Del(String),
+}
+
 pub trait GenericHandler {
     fn ping(&self, msg: Option<String>) -> Result<BytesFrame, RedisError>;
     fn echo(&self, message: &str) -> Result<BytesFrame, RedisError>;

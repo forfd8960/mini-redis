@@ -8,6 +8,65 @@ use crate::{
     value::{ListInsertPivot, ListMoveDirection},
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListCommand {
+    Lpush(String, Vec<String>), // lpush key value1 value2 ...
+    Rpush(String, Vec<String>), // rpush key value1 value2 ...
+
+    /*
+    LPOP mylist               # remove & return from left
+    RPOP mylist               # remove & return from right
+    LPOP mylist 3             # remove & return 3 elements from left
+    RPOP mylist 3             # remove & return 3 elements from right
+    */
+    Lpop(String, usize), // lpop key count
+    Rpop(String, usize), // rpop key count
+
+    /*
+    LRANGE mylist 0 -1        # get all elements (0 = first, -1 = last)
+    LRANGE mylist 0 4         # get first 5 elements
+    LRANGE mylist -3 -1       # get last 3 elements
+    */
+    Lrange(String, i64, i64), // lrange key start stop
+
+    Lrem(String, String, i64), // lrem key value count
+    LTrim(String, i64, i64),   // ltrim keep only indices 1–3, delete everything else
+
+    /// LINSERT mylist BEFORE "x" "new"   # insert "new" before "x"
+    /// LINSERT mylist AFTER  "x" "new"   # insert "new" after "x"
+    LInsert {
+        key: String,
+        position: ListInsertPivot, // whether to insert before or after the pivot
+        pivot: String,
+        value: String,
+    }, // linsert key BEFORE|AFTER pivot value
+
+    LSet(String, i64, String), // lset key index value
+
+    /// LMOVE src dest LEFT  RIGHT   # pop from src left, push to dest right
+    /// LMOVE src dest RIGHT LEFT   # pop from src right, push to dest left
+    LMove {
+        src: String,
+        dest: String,
+        source_side: ListMoveDirection, // LEFT or RIGHT
+        dest_side: ListMoveDirection,   // LEFT or RIGHT
+    }, // lmove source destination LEFT|RIGHT LEFT|RIGHT
+
+    LIndex(String, i64), // lindex key index
+    Llen(String),        // llen key
+
+    // # Blocks until an element is available (or timeout expires)
+    BLpop(Vec<String>, u64), // blpop key1 key2 ... timeout
+    BRpop(Vec<String>, u64), // brpop key1 key2 ... timeout
+    BLmove {
+        src: String,
+        dest: String,
+        source_side: ListMoveDirection, // LEFT or RIGHT
+        dest_side: ListMoveDirection,   // LEFT or RIGHT
+        timeout: u64,
+    }, // blmove source destination LEFT|RIGHT LEFT|RIGHT timeout
+}
+
 pub trait ListHandler {
     fn lpush(&mut self, key: &str, values: &[String]) -> Result<BytesFrame, RedisError>;
     fn rpush(&mut self, key: &str, values: &[String]) -> Result<BytesFrame, RedisError>;
@@ -150,10 +209,8 @@ impl ListHandler for CommandHandler {
     ) -> Result<BytesFrame, RedisError> {
         let res = self.mem_storage.lmove(src, dest, source_side, dest_side)?;
         match res {
-            Some(v) => {
-                Ok(encode_simple_string(v))
-            }
-            None => Ok(encode_nil())
+            Some(v) => Ok(encode_simple_string(v)),
+            None => Ok(encode_nil()),
         }
     }
 

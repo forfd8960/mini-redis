@@ -1,6 +1,52 @@
-use crate::command::{CommandHandler, StringCommand};
+use crate::command::CommandHandler;
 use crate::storage::{SetOptions, Storage};
 use crate::value::StringValue;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StringCommand {
+    Get(String),
+    /// https://redis.io/docs/latest/commands/set/
+    /// set key value [EX seconds] [PX milliseconds] [EXAT timestamp-seconds]
+    ///     [PXAT timestamp-milliseconds] [KEEPTTL] [NX|XX] [GET]
+    Set {
+        key: String,
+        value: String,
+        options: SetOptions,
+    },
+    Incr(String),
+    IncrBy {
+        key: String,
+        increment: i64,
+    }, // incrby key increment
+    Decr(String),
+    DecrBy {
+        key: String,
+        decrement: i64,
+    }, // decrby key decrement
+    Mget {
+        keys: Vec<String>,
+    }, // mget key1 key2 ...
+    Mset {
+        pairs: Vec<(String, String)>,
+    }, // mset key1 value1 key2 value2 ...
+    GetRange {
+        key: String,
+        start: usize,
+        end: usize,
+    }, // getrange key start end
+    SetRange {
+        key: String,
+        offset: usize,
+        value: String,
+    }, // setrange key offset value
+    Append {
+        key: String,
+        value: String,
+    }, // append key value
+    StrLen {
+        key: String,
+    }, // strlen key
+}
 
 pub trait StringHandler {
     fn get(&self, key: &str) -> Option<StringValue>;

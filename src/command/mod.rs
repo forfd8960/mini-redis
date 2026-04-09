@@ -1,20 +1,20 @@
+use redis_protocol::resp2::types::BytesFrame;
+
 use crate::{
     command::{
-        generic::GenericHandler,
+        generic::{GenericCommand, GenericHandler},
         hash::{HashCommand, HashHandler},
-        list::ListHandler,
+        list::{ListCommand, ListHandler},
         set::{SetCommand, SetHandler},
-        string::StringHandler,
+        sorted_set::{SortedSetCommand, SortedSetHandler},
+        string::{StringCommand, StringHandler},
     },
     errors::RedisError,
     protocol::encoder::{
         encode_integer, encode_nil, encode_ok, encode_simple_string, encode_string, encode_strings,
     },
-    storage::{SetOptions, mem::MemStore},
-    value::{ListInsertPivot, ListMoveDirection},
+    storage::mem::MemStore,
 };
-use ordered_float::OrderedFloat;
-use redis_protocol::resp2::types::BytesFrame;
 
 pub mod generic; // general commands like PING, ECHO, EXISTS, TTL, EXPIRE, SCAN, KEYS, DEL, etc.
 pub mod hash; // hash commands like HSET, HGET, HMGET, HGETALL, etc.
@@ -23,143 +23,16 @@ pub mod set; // set commands like SADD, SREM, SMEMBERS, etc.
 pub mod sorted_set; // sorted set commands like ZADD, ZRANGE, ZSCORE, etc.
 pub mod string; // string commands like GET, SET, INCR, DECR, etc.
 
+pub type HandlerResult = Result<BytesFrame, RedisError>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    Generic(GenericCommand),
-    String(StringCommand),
-    List(ListCommand),
+    Generic(generic::GenericCommand),
+    String(string::StringCommand),
+    List(list::ListCommand),
     Hash(hash::HashCommand),
-    Set(SetCommand),
-    SortedSet(SortedSetCommand),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum GenericCommand {
-    Ping(Option<String>), // ping [message]
-    Echo(String),
-    Exists(Vec<String>), // exists key1 key2 ...
-    TTL(String),
-    Expire(String, u64),
-    // scan cursor [MATCH pattern] [COUNT count] [TYPE type]
-    Scan(i64, Option<String>, Option<usize>, Option<String>),
-    Keys(String), // keys pattern
-    Type(String), // type key
-    Del(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StringCommand {
-    Get(String),
-    /// https://redis.io/docs/latest/commands/set/
-    /// set key value [EX seconds] [PX milliseconds] [EXAT timestamp-seconds]
-    ///     [PXAT timestamp-milliseconds] [KEEPTTL] [NX|XX] [GET]
-    Set {
-        key: String,
-        value: String,
-        options: SetOptions,
-    },
-    Incr(String),
-    IncrBy {
-        key: String,
-        increment: i64,
-    }, // incrby key increment
-    Decr(String),
-    DecrBy {
-        key: String,
-        decrement: i64,
-    }, // decrby key decrement
-    Mget {
-        keys: Vec<String>,
-    }, // mget key1 key2 ...
-    Mset {
-        pairs: Vec<(String, String)>,
-    }, // mset key1 value1 key2 value2 ...
-    GetRange {
-        key: String,
-        start: usize,
-        end: usize,
-    }, // getrange key start end
-    SetRange {
-        key: String,
-        offset: usize,
-        value: String,
-    }, // setrange key offset value
-    Append {
-        key: String,
-        value: String,
-    }, // append key value
-    StrLen {
-        key: String,
-    }, // strlen key
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ListCommand {
-    Lpush(String, Vec<String>), // lpush key value1 value2 ...
-    Rpush(String, Vec<String>), // rpush key value1 value2 ...
-
-    /*
-    LPOP mylist               # remove & return from left
-    RPOP mylist               # remove & return from right
-    LPOP mylist 3             # remove & return 3 elements from left
-    RPOP mylist 3             # remove & return 3 elements from right
-    */
-    Lpop(String, usize), // lpop key count
-    Rpop(String, usize), // rpop key count
-
-    /*
-    LRANGE mylist 0 -1        # get all elements (0 = first, -1 = last)
-    LRANGE mylist 0 4         # get first 5 elements
-    LRANGE mylist -3 -1       # get last 3 elements
-    */
-    Lrange(String, i64, i64), // lrange key start stop
-
-    Lrem(String, String, i64), // lrem key value count
-    LTrim(String, i64, i64),   // ltrim keep only indices 1–3, delete everything else
-
-    /// LINSERT mylist BEFORE "x" "new"   # insert "new" before "x"
-    /// LINSERT mylist AFTER  "x" "new"   # insert "new" after "x"
-    LInsert {
-        key: String,
-        position: ListInsertPivot, // whether to insert before or after the pivot
-        pivot: String,
-        value: String,
-    }, // linsert key BEFORE|AFTER pivot value
-
-    LSet(String, i64, String), // lset key index value
-
-    /// LMOVE src dest LEFT  RIGHT   # pop from src left, push to dest right
-    /// LMOVE src dest RIGHT LEFT   # pop from src right, push to dest left
-    LMove {
-        src: String,
-        dest: String,
-        source_side: ListMoveDirection, // LEFT or RIGHT
-        dest_side: ListMoveDirection,   // LEFT or RIGHT
-    }, // lmove source destination LEFT|RIGHT LEFT|RIGHT
-
-    LIndex(String, i64), // lindex key index
-    Llen(String),        // llen key
-
-    // # Blocks until an element is available (or timeout expires)
-    BLpop(Vec<String>, u64), // blpop key1 key2 ... timeout
-    BRpop(Vec<String>, u64), // brpop key1 key2 ... timeout
-    BLmove {
-        src: String,
-        dest: String,
-        source_side: ListMoveDirection, // LEFT or RIGHT
-        dest_side: ListMoveDirection,   // LEFT or RIGHT
-        timeout: u64,
-    }, // blmove source destination LEFT|RIGHT LEFT|RIGHT timeout
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SortedSetCommand {
-    Zadd(String, Vec<(String, OrderedFloat<f64>)>), // zadd key score1 member1 score2 member2 ...
-    Zrem(String, Vec<String>),                      // zrem key member1 member2 ...
-    Zrange(String, usize, usize),                   // zrange key start stop
-    ZrangeWithScores(String, usize, usize),         // zrange key start stop withscores
-    Zrank(String, String),                          // zrank key member
-    Zscore(String, String),                         // zscore key member
+    Set(set::SetCommand),
+    SortedSet(sorted_set::SortedSetCommand),
 }
 
 pub fn is_generic_command(cmd_name: &str) -> bool {
@@ -254,7 +127,33 @@ pub fn is_set_command(cmd_name: &str) -> bool {
 pub fn is_sorted_set_command(cmd_name: &str) -> bool {
     matches!(
         cmd_name.to_uppercase().as_str(),
-        "ZADD" | "ZREM" | "ZRANGE" | "ZRANGEWITHSCORES" | "ZRANK" | "ZSCORE"
+        "ZADD"
+            | "ZINCRBY"
+            | "ZREM"
+            | "ZRANGE"
+            | "ZRANGEWITHSCORES"
+            | "ZCARD"
+            | "ZCOUNT"
+            | "ZLEXCOUNT"
+            | "ZRANK"
+            | "ZREVRANK"
+            | "ZSCORE"
+            | "ZMSCORE"
+            | "ZPOPMAX"
+            | "ZPOPMIN"
+            | "BZPOPMAX"
+            | "BZPOPMIN"
+            | "ZREMRANGEBYRANK"
+            | "ZREMRANGEBYSCORE"
+            | "ZREMRANGEBYLEX"
+            | "ZUNION"
+            | "ZUNIONSTORE"
+            | "ZINTER"
+            | "ZINTERSTORE"
+            | "ZDIFF"
+            | "ZDIFFSTORE"
+            | "ZRANDMEMBER"
+            | "ZSCAN"
     )
 }
 
@@ -274,6 +173,7 @@ impl CommandHandler {
             Command::List(list_cmd) => self.handle_list_commands(list_cmd),
             Command::Hash(hash_cmd) => self.handle_hash_commands(hash_cmd),
             Command::Set(set_cmd) => self.handle_set_commands(set_cmd),
+            Command::SortedSet(sorted_set_cmd) => self.handle_sorted_set_commands(sorted_set_cmd),
             _ => Err(RedisError::UnsupportedCommand),
         }
     }
@@ -494,6 +394,41 @@ impl CommandHandler {
             SetCommand::SScan(key, cursor, pattern) => self.sscan(&key, cursor, pattern),
 
             _ => Err(RedisError::UnsupportedCommand),
+        }
+    }
+
+    fn handle_sorted_set_commands(
+        &mut self,
+        cmd: SortedSetCommand,
+    ) -> Result<BytesFrame, RedisError> {
+        match cmd {
+            SortedSetCommand::ZAdd {
+                key,
+                members,
+                options,
+            } => self.zadd(&key, members, &options),
+            SortedSetCommand::ZRem { key, members } => self.zrem(&key, members),
+            SortedSetCommand::ZRange {
+                key,
+                range,
+                rev,
+                limit,
+                with_scores,
+            } => unimplemented!(),
+            SortedSetCommand::ZRangeStore {
+                dst,
+                src,
+                range,
+                rev,
+                limit,
+            } => self.zrange_store(&dst, &src, range, rev, limit),
+            SortedSetCommand::ZRank {
+                key,
+                member,
+                with_score,
+            } => self.zrank(&key, &member, with_score),
+            SortedSetCommand::ZScore { key, member } => self.zscore(&key, &member),
+            _ => Err(RedisError::UnsupportedCommand), // other sorted set commands not implemented yet
         }
     }
 }
