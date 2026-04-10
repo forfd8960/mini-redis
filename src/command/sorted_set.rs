@@ -296,9 +296,9 @@ pub enum SortedSetCommand {
     },
 
     // ── Set algebra commands ──────────────────────────────────────────────────
-    /// ZUNIONSTORE dst numkeys key [key ...] [WEIGHTS w ...] [AGGREGATE SUM|MIN|MAX]
+    /// ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS w ...] [AGGREGATE SUM|MIN|MAX]
     ///
-    /// Compute the union of sorted sets and store the result in `dst`.
+    /// Compute the union of sorted sets and store the result in `destination`.
     ZUnionStore {
         dst: String,
         keys: Vec<String>,
