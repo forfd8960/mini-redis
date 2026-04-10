@@ -1,12 +1,13 @@
-use std::collections::HashMap;
-
 use ordered_float::OrderedFloat;
 use redis_protocol::resp2::types::BytesFrame;
-use tokio::runtime::Handle;
 
 use crate::{
     command::{CommandHandler, HandlerResult},
-    errors::RedisError,
+    protocol::encoder::{
+        encode_integer, encode_nil, encode_option_strings, encode_simple_string,
+        encode_simple_strings,
+    },
+    storage::sorted_set::SortedSetStore,
 };
 
 // ─── Score bound ────────────────────────────────────────────────────────────
@@ -506,7 +507,7 @@ pub trait SortedSetHandler {
     /// With INCR:  returns the new score of the single member (or None if
     ///             the NX/XX/GT/LT condition was not met).
     fn zadd(
-        &self,
+        &mut self,
         key: &str,
         members: Vec<(OrderedFloat<f64>, String)>,
         options: &ZAddOptions,
@@ -649,7 +650,7 @@ pub trait SortedSetHandler {
     /// ZMSCORE key member [member ...]
     ///
     /// Returns one `Option<f64>` per member — None for members not in the set.
-    fn zmscore(&self, key: &str, members: &[&str]) -> HandlerResult;
+    fn zmscore(&self, key: &str, members: &[String]) -> HandlerResult;
 
     // ── Count commands ────────────────────────────────────────────────────────
 
@@ -778,12 +779,13 @@ pub trait SortedSetHandler {
 
 impl SortedSetHandler for CommandHandler {
     fn zadd(
-        &self,
+        &mut self,
         key: &str,
         members: Vec<(OrderedFloat<f64>, String)>,
         options: &ZAddOptions,
     ) -> HandlerResult {
-        unimplemented!()
+        let added = self.mem_storage.zadd(key, members, options);
+        Ok(encode_integer(added as i64))
     }
 
     fn zincrby(&self, key: &str, increment: f64, member: &str) -> HandlerResult {
@@ -882,7 +884,14 @@ impl SortedSetHandler for CommandHandler {
     }
 
     fn zrank(&self, key: &str, member: &str, with_score: bool) -> HandlerResult {
-        todo!()
+        let rank = self.mem_storage.zrank(key, member, with_score);
+        match rank {
+            Some(r) => Ok(BytesFrame::Array(vec![
+                encode_integer(r.rank as i64),
+                encode_simple_string(r.score.map_or("".to_string(), |s| s.to_string())),
+            ])),
+            None => Ok(encode_nil()),
+        }
     }
 
     fn zrevrank(&self, key: &str, member: &str, with_score: bool) -> HandlerResult {
@@ -890,15 +899,28 @@ impl SortedSetHandler for CommandHandler {
     }
 
     fn zscore(&self, key: &str, member: &str) -> HandlerResult {
-        todo!()
+        let score = self.mem_storage.zscore(key, member);
+        match score {
+            Some(s) => Ok(encode_simple_string(s.to_string())),
+            None => Ok(encode_nil()),
+        }
     }
 
-    fn zmscore(&self, key: &str, members: &[&str]) -> HandlerResult {
-        todo!()
+    fn zmscore(&self, key: &str, members: &[String]) -> HandlerResult {
+        let scores = self.mem_storage.zmscore(key, members);
+        let encoded_scores: Vec<Option<String>> = scores
+            .into_iter()
+            .map(|score| match score {
+                Some(s) => Some(s.to_string()),
+                None => None,
+            })
+            .collect();
+        Ok(encode_option_strings(encoded_scores))
     }
 
     fn zcard(&self, key: &str) -> HandlerResult {
-        todo!()
+        let count = self.mem_storage.zcard(key);
+        Ok(encode_integer(count as i64))
     }
 
     fn zcount(&self, key: &str, min: ScoreBound, max: ScoreBound) -> HandlerResult {

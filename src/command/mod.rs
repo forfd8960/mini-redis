@@ -407,6 +407,7 @@ impl CommandHandler {
                 members,
                 options,
             } => self.zadd(&key, members, &options),
+            SortedSetCommand::ZCard { key } => self.zcard(&key),
             SortedSetCommand::ZRem { key, members } => self.zrem(&key, members),
             SortedSetCommand::ZRange {
                 key,
@@ -428,6 +429,7 @@ impl CommandHandler {
                 with_score,
             } => self.zrank(&key, &member, with_score),
             SortedSetCommand::ZScore { key, member } => self.zscore(&key, &member),
+            SortedSetCommand::ZMScore { key, members } => self.zmscore(&key, members.as_slice()),
             _ => Err(RedisError::UnsupportedCommand), // other sorted set commands not implemented yet
         }
     }

@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create framed stream with our RESP codec
     let mut framed = Framed::new(stream, Resp2::default());
 
-    send_set_cmds(&mut framed).await?;
+    send_sorted_set_cmds(&mut framed).await?;
 
     Ok(())
 }
@@ -176,10 +176,11 @@ async fn send_sorted_set_cmds(
             "ZADD myzset 2 two",
             "ZADD myzset 3 three",
             "ZCARD myzset",
-            "ZRANGE myzset 0 -1 WITHSCORES",
-            "ZRANGE myzset 0 1",
-            "ZREM myzset two",
-            "ZRANGE myzset 0 -1 WITHSCORES",
+            "ZRANK myzset two WITHSCORE",
+            // "ZRANGE myzset 0 -1 WITHSCORES",
+            // "ZRANGE myzset 0 1",
+            // "ZREM myzset two",
+            // "ZRANGE myzset 0 -1 WITHSCORES",
         ],
     )
     .await?;

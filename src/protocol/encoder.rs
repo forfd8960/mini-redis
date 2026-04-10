@@ -18,6 +18,17 @@ pub fn encode_simple_strings(s: Vec<String>) -> BytesFrame {
     )
 }
 
+pub fn encode_option_strings(s: Vec<Option<String>>) -> BytesFrame {
+    BytesFrame::Array(
+        s.into_iter()
+            .map(|s| match s {
+                Some(v) => BytesFrame::BulkString(v.into()),
+                None => encode_nil(),
+            })
+            .collect(),
+    )
+}
+
 pub fn encode_string(s_v: StringValue) -> BytesFrame {
     match s_v {
         StringValue::Int(i) => encode_integer(i),
