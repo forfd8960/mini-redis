@@ -1,4 +1,7 @@
-use crate::value::{StringValue, list::ListValue, set::SetValue, sorted_set::SortedSetValue};
+use crate::{
+    command::sorted_set::ScoredMember,
+    value::{StringValue, list::ListValue, set::SetValue, sorted_set::SortedSetValue},
+};
 use redis_protocol::resp2::types::BytesFrame;
 use tokio_util::bytes::Bytes;
 
@@ -97,6 +100,17 @@ pub fn encode_sorted_set(sorted_set: SortedSetValue) -> BytesFrame {
     for (member, score) in sorted_set.members {
         arr.push(BytesFrame::BulkString(member.into()));
         arr.push(encode_float(score.into_inner()));
+    }
+    BytesFrame::Array(arr)
+}
+
+pub fn encode_scored_members(scored_members: Vec<ScoredMember>) -> BytesFrame {
+    let mut arr = Vec::with_capacity(scored_members.len() * 2);
+    for ScoredMember { member, score } in scored_members {
+        arr.push(BytesFrame::BulkString(member.into()));
+        if score.is_some() {
+            arr.push(encode_simple_string(score.unwrap().to_string()));
+        }
     }
     BytesFrame::Array(arr)
 }

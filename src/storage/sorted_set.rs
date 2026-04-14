@@ -416,7 +416,14 @@ impl SortedSetStore for MemStore {
     }
 
     fn zrem(&mut self, key: &str, members: &[String]) -> usize {
-        unimplemented!()
+        if let Some(mut v) = self.data.get_mut(key) {
+            if let RedisValue::SortedSet(set) = &mut *v {
+                return set.zrem(members.to_vec());
+            }
+
+            return 0;
+        }
+        0
     }
 
     fn zpopmin(&mut self, key: &str, count: Option<u64>) -> Vec<ScoredMember> {
@@ -457,7 +464,15 @@ impl SortedSetStore for MemStore {
         limit: Option<Limit>,
         with_scores: bool,
     ) -> Vec<ScoredMember> {
-        unimplemented!()
+        if let Some(v) = self.data.get(key) {
+            if let RedisValue::SortedSet(set) = v.value() {
+                return set.zrange(range, rev, limit, with_scores);
+            }
+
+            return vec![];
+        }
+
+        vec![]
     }
 
     fn zrangestore(

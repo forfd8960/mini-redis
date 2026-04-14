@@ -539,10 +539,10 @@ ZRANGE myset "[a" "[m" BYLEX REV         # reversed
 */
 fn parse_zrange(args: &[String]) -> Result<Command, RedisError> {
     let key = args[0].clone();
+
     let mut args_pos = 0;
     let range_type = if args.len() > 3 && args[3].to_uppercase() == "BYSCORE" {
         args_pos = 4; // skip key, min, max, BYSCORE
-
         RangeBy::Score {
             min: parse_scorebound(&args[1])?,
             max: parse_scorebound(&args[2])?,
@@ -559,6 +559,7 @@ fn parse_zrange(args: &[String]) -> Result<Command, RedisError> {
         let stop = args[2].parse::<i64>().map_err(|e| {
             RedisError::ProtocolError(format!("Invalid end index for ZRANGE: {}", e))
         })?;
+
         args_pos = 3; // skip key, start, stop
         RangeBy::Rank { start, stop }
     };

@@ -407,15 +407,15 @@ impl CommandHandler {
                 members,
                 options,
             } => self.zadd(&key, members, &options),
-            SortedSetCommand::ZCard { key } => self.zcard(&key),
             SortedSetCommand::ZRem { key, members } => self.zrem(&key, members),
+            SortedSetCommand::ZCard { key } => self.zcard(&key),
             SortedSetCommand::ZRange {
                 key,
                 range,
                 rev,
                 limit,
                 with_scores,
-            } => unimplemented!(),
+            } => self.zrange(&key, range, rev, limit, with_scores),
             SortedSetCommand::ZRangeStore {
                 dst,
                 src,

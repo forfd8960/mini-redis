@@ -4,8 +4,8 @@ use redis_protocol::resp2::types::BytesFrame;
 use crate::{
     command::{CommandHandler, HandlerResult},
     protocol::encoder::{
-        encode_integer, encode_nil, encode_option_strings, encode_simple_string,
-        encode_simple_strings,
+        encode_integer, encode_nil, encode_option_strings, encode_scored_members,
+        encode_simple_string, encode_simple_strings,
     },
     storage::sorted_set::SortedSetStore,
 };
@@ -194,7 +194,7 @@ pub enum SortedSetCommand {
     },
 
     // ── Range read commands ───────────────────────────────────────────────────
-    /// ZRANGE key min max [BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]
+    /// zrange key start stop [BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]
     ///
     /// Return a range of members. The range axis (rank/score/lex),
     /// direction, pagination, and score inclusion are all configurable.
@@ -469,7 +469,7 @@ impl std::fmt::Display for SortedSetCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoredMember {
     pub member: String,
-    pub score: f64,
+    pub score: Option<f64>,
 }
 
 /// Return value of ZRANK / ZREVRANK [WITHSCORE].
@@ -517,13 +517,13 @@ pub trait SortedSetHandler {
     ///
     /// Atomically increment the score of `member` by `increment`.
     /// Returns the new score.
-    fn zincrby(&self, key: &str, increment: f64, member: &str) -> HandlerResult;
+    fn zincrby(&mut self, key: &str, increment: f64, member: &str) -> HandlerResult;
 
     /// ZREM key member [member ...]
     ///
     /// Remove one or more members. Returns the count actually removed
     /// (members that did not exist are not counted).
-    fn zrem(&self, key: &str, members: Vec<String>) -> HandlerResult;
+    fn zrem(&mut self, key: &str, members: Vec<String>) -> HandlerResult;
 
     // ── Pop commands ──────────────────────────────────────────────────────────
 
@@ -577,9 +577,9 @@ pub trait SortedSetHandler {
     fn zrange(
         &self,
         key: &str,
-        start: i64,
-        stop: i64,
+        range: RangeBy,
         rev: bool,
+        limit: Option<Limit>,
         with_scores: bool,
     ) -> HandlerResult;
 
@@ -788,12 +788,13 @@ impl SortedSetHandler for CommandHandler {
         Ok(encode_integer(added as i64))
     }
 
-    fn zincrby(&self, key: &str, increment: f64, member: &str) -> HandlerResult {
+    fn zincrby(&mut self, key: &str, increment: f64, member: &str) -> HandlerResult {
         unimplemented!()
     }
 
-    fn zrem(&self, key: &str, members: Vec<String>) -> HandlerResult {
-        unimplemented!()
+    fn zrem(&mut self, key: &str, members: Vec<String>) -> HandlerResult {
+        let removed = self.mem_storage.zrem(key, &members);
+        Ok(encode_integer(removed as i64))
     }
 
     fn zpopmin(&self, key: &str, count: Option<u64>) -> HandlerResult {
@@ -829,12 +830,13 @@ impl SortedSetHandler for CommandHandler {
     fn zrange(
         &self,
         key: &str,
-        start: i64,
-        stop: i64,
+        range: RangeBy,
         rev: bool,
+        limit: Option<Limit>,
         with_scores: bool,
     ) -> HandlerResult {
-        todo!()
+        let members = self.mem_storage.zrange(key, range, rev, limit, with_scores);
+        Ok(encode_scored_members(members))
     }
 
     fn zrange_by_score(
