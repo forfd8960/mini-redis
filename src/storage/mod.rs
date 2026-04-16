@@ -53,7 +53,7 @@ pub trait Storage {
     fn decr(&mut self, key: &str) -> Option<i64>;
     fn decrby(&mut self, key: &str, decrement: i64) -> Option<i64>;
     fn mget(&self, keys: Vec<&str>) -> Vec<Option<StringValue>>;
-    fn mset(&mut self, pairs: Vec<(String, String)>) -> bool;
+    fn mset(&mut self, pairs: Vec<(String, StringValue)>) -> bool;
     fn getrange(&self, key: &str, start: usize, stop: usize) -> Option<String>;
     fn setrange(&mut self, key: &str, offset: usize, value: String) -> Option<usize>;
     fn append(&mut self, key: &str, value: &str) -> Option<usize>;

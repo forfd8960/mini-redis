@@ -312,9 +312,9 @@ impl Storage for MemStore {
         values
     }
 
-    fn mset(&mut self, pairs: Vec<(String, String)>) -> bool {
+    fn mset(&mut self, pairs: Vec<(String, StringValue)>) -> bool {
         for (key, value) in pairs {
-            let value = RedisValue::String(StringValue::Raw(value));
+            let value = RedisValue::String(value);
             self.data.insert(key, value);
         }
         true

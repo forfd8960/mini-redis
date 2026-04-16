@@ -16,6 +16,7 @@ use crate::{
         set::decode_set_command,
     },
     storage::{SetCondition, SetOptions, SetTTL},
+    value::StringValue,
 };
 
 use ordered_float::OrderedFloat;
@@ -249,7 +250,13 @@ fn decode_string_command(parts: &[String]) -> Result<Command, RedisError> {
             }
             let mut pairs = Vec::new();
             for i in (0..args.len()).step_by(2) {
-                pairs.push((args[i].clone(), args[i + 1].clone()));
+                let val = if let Some(v) = args[i + 1].parse::<i64>().ok() {
+                    StringValue::Int(v)
+                } else {
+                    StringValue::Raw(args[i + 1].clone())
+                };
+
+                pairs.push((args[i].clone(), val));
             }
             Ok(Command::String(StringCommand::Mset { pairs }))
         }
@@ -318,6 +325,12 @@ fn decode_string_command(parts: &[String]) -> Result<Command, RedisError> {
 }
 
 fn build_set_command(args: &[String]) -> Result<Command, RedisError> {
+    if args.len() < 2 {
+        return Err(RedisError::ProtocolError(format!(
+            "SET requires at least 2 arguments",
+        )));
+    }
+
     let key = args[0].clone();
     let value = args[1].clone();
     let mut options = SetOptions::default();
@@ -390,11 +403,20 @@ fn build_set_command(args: &[String]) -> Result<Command, RedisError> {
         i += 1;
     }
 
-    Ok(Command::String(StringCommand::Set {
-        key,
-        value,
-        options,
-    }))
+    // if value is integer string, store as Integer variant, otherwise store as Raw string
+    if let Some(v) = value.parse::<i64>().ok() {
+        Ok(Command::String(StringCommand::Set {
+            key,
+            value: StringValue::Int(v),
+            options,
+        }))
+    } else {
+        Ok(Command::String(StringCommand::Set {
+            key,
+            value: StringValue::Raw(value),
+            options,
+        }))
+    }
 }
 
 fn decode_sorted_set_command(parts: &[String]) -> CommandResult {
@@ -1134,7 +1156,25 @@ mod tests {
             cmd,
             Command::String(StringCommand::Set {
                 key: "mykey".to_string(),
-                value: "myvalue".to_string(),
+                value: StringValue::Raw("myvalue".to_string()),
+                options: SetOptions::default(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_string_command_set_int() {
+        let frame = Frame::Array(vec![
+            Frame::BulkString(b"SET".to_vec()),
+            Frame::BulkString(b"mykey".to_vec()),
+            Frame::BulkString(b"1000".to_vec()),
+        ]);
+        let cmd = decode_frame(frame).unwrap();
+        assert_eq!(
+            cmd,
+            Command::String(StringCommand::Set {
+                key: "mykey".to_string(),
+                value: StringValue::Int(1000),
                 options: SetOptions::default(),
             })
         );
@@ -1155,7 +1195,7 @@ mod tests {
             cmd,
             Command::String(StringCommand::Set {
                 key: "mykey".to_string(),
-                value: "myvalue".to_string(),
+                value: StringValue::Raw("myvalue".to_string()),
                 options: SetOptions {
                     ttl: Some(SetTTL::EX(60)),
                     condition: Some(SetCondition::NX),
