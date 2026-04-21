@@ -29,6 +29,10 @@ impl SortedSetValue {
         val
     }
 
+    pub fn len(&self) -> usize {
+        self.members.len()
+    }
+
     pub fn zcard(&self) -> usize {
         self.members.len()
     }

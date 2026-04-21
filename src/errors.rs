@@ -9,6 +9,9 @@ pub enum RedisError {
     #[error("Persistence error: {0}")]
     PersistenceError(String),
 
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
+
     #[error("unsupported command")]
     UnsupportedCommand,
 }
